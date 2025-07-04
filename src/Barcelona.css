@@ -1,0 +1,168 @@
+/* Contenedor principal */
+.spreadsheet-container {
+    width: 100%;
+    margin: 20px auto;
+    padding: 20px;
+    background: linear-gradient(90deg, #E3F2FD, #E8F5E9);
+    border-radius: 8px; /* Opcional para darle un borde redondeado */
+    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  }
+  
+/* Tabla */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 auto;
+    text-align: center;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1); /* Sombras sutiles */
+ border-radius: 6px;
+  }
+  
+  th, td {
+    border: 1px solid #ccc;
+    padding: 10px;
+    text-align: center;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1); /* Sombras sutiles */
+  border-radius: 6px;
+  }
+  
+
+/* Inputs */
+input {
+    width: 90%;
+    padding: 5px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+    text-align: center;
+    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1); /* Sombras sutiles */
+  border-radius: 6px;
+}
+
+/* Campo de Observaciones */
+.observation-field {
+    width: 100%;
+    height: 100px;
+    resize: none;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  
+
+/* Botones */
+.button-container {
+    display: flex;
+    gap: 15px; /* Espaciado entre botones */
+}
+
+button {
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2); /* Suaviza la sombra */
+    border-radius: 5px; /* Redondea los bordes */
+    padding: 10px; /* Ajusta el espacio interno */
+    background-color: #4CAF50; /* Color de fondo */
+    color: white; /* Color del texto */
+    border: none; /* Quita el borde */
+    cursor: pointer; /* Cambia el cursor al pasar el ratón */
+    transition: all 0.3s ease; /* Añade una transición suave */
+  }
+
+button[style*="background-color: blue"] {
+    background-color: blue;
+    color: white;
+}
+
+button[style*="background-color: red"] {
+    background-color: red;
+    color: white;
+}
+
+button[style*="background-color: yellow"] {
+    background-color: yellow;
+    color: black;
+}
+
+button[style*="background-color: white"] {
+    background-color: white;
+    color: black;
+    border: 1px solid #ccc;
+
+    
+}
+
+.button-click-effect {
+    padding: 10px; /* Espaciado interno */
+    border-radius: 5px; /* Bordes redondeados */
+    border: none; /* Sin bordes visibles */
+    cursor: pointer; /* Cursor interactivo */
+    font-size: 1rem; /* Tamaño del texto */
+    color: white; /* Color del texto */
+    background-color: #4CAF50; /* Fondo verde */
+    transition: all 0.3s ease; /* Suavidad en los efectos */
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2); /* Sombra inicial */
+  }
+  
+.button-click-effect:hover {
+    background-color: #45A049; /* Verde más claro */
+    box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.3); /* Sombra más fuerte */
+  }
+
+.button-click-effect:hover:active {
+  transform: scale(0.95); /* Efecto de presión */
+  background-color: #d1d1d1; /* Cambiar color al presionar */
+
+  }
+
+  
+
+  
+select {
+    width: 100%;
+    max-width: 300px; /* Opcional para limitar el tamaño */
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  
+  
+.filter-container, .button-container {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+  
+
+.skeleton {
+  background: linear-gradient(90deg, #eeeeee 25%, #dddddd 50%, #eeeeee 75%);
+  background-size: 200% 100%;
+  animation: skeleton-animation 1.5s infinite;
+  border-radius: 4px;
+  height: 20px; /* Altura para simular texto o contenido */
+  }
+  
+@keyframes skeleton-animation {
+  0% {
+    background-position: 200% 0;
+    }
+    100% {
+    background-position: -200% 0;
+  }
+
+  
+}
+  table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+th:nth-child(2), td:nth-child(2) { width: 100px; } /* Código */
+th:nth-child(3), td:nth-child(3) { width: 120px; } /* Campaña */
+th:nth-child(4), td:nth-child(4) { width: 120px; } /* Club */
+th:nth-child(5), td:nth-child(5) { width: 80px; }  /* CP */
+th:nth-child(6), td:nth-child(6) { width: 200px; } /* Dirección */
+th:nth-child(7), td:nth-child(7) { width: 140px; } /* Municipio */
+th:nth-child(8), td:nth-child(8) { width: 140px; } /* Provincia */
+th:nth-child(9), td:nth-child(9) { width: 200px; } /* Observaciones */
+th:nth-child(10), td:nth-child(10) { width: 160px; } /* Fecha inicio */
+th:nth-child(11), td:nth-child(11) { width: 160px; } /* Fecha fin */

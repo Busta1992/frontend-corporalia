@@ -1,0 +1,57 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+html, body, #root, * {
+  font-family: 'Poppins', sans-serif !important;
+}
+
+
+
+.app-container {
+  margin: 20;      /* Quita márgenes */
+  padding: 0;     /* Quita padding si lo hubiera */
+}
+
+/* Opcional: también puedes ajustar el h1 */
+.app-container h1 {
+  margin: 0;
+  padding: 0.5rem; /* Ajusta según convenga */
+}
+
+body {
+  font-family: 'Orbitron', sans-serif;
+}
+
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+/* src/App.css */
+html, body {
+  background-color: #D5F5E3 !important; /* Verde pastel uniforme */
+  margin: 0;
+  padding: 0;
+  min-height: 100vh; /* Asegura que el fondo cubra toda la ventana */
+}
+
+
+
+
+
+
+.app-container {
+  text-align: center;
+  /* Otros estilos que necesites para el contenedor */
+}
+
+
+

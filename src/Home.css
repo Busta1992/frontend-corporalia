@@ -1,0 +1,85 @@
+.home-container {
+    margin: 0 auto;
+    padding: 40px; /* Aumentado */
+    width: 50%; /* Ocupa el 50% del ancho de la pantalla */
+    min-height: 80vh; /* Ocupe casi toda la altura de la pantalla */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(90deg, #E3F2FD, #E8F5E9);
+    border-radius: 12px; /* Bordes más redondeados */
+    box-shadow: 0px 8px 10px rgba(0, 0, 0, 0.15);
+  }
+  
+  .home-title {
+    font-size: 3rem; /* Tamaño aumentado */
+    margin-bottom: 30px;
+    color: #333;
+  }
+  
+  .home-form {
+    width: 100%; /* Usar todo el ancho del contenedor */
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  .home-label {
+    font-size: 1.2rem; /* Más grande y visible */
+    color: #555;
+    text-align: left; /* Alineación a la izquierda */
+  }
+  
+  .home-input {
+    padding: 15px; /* Inputs más cómodos */
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 1rem;
+    width: 100%; /* Ocupan el ancho completo */
+  }
+  
+  .home-button, .register-button {
+    padding: 15px; /* Botones más altos */
+    border: none;
+    border-radius: 6px;
+    font-size: 1.2rem; /* Texto más grande */
+    cursor: pointer;
+  }
+  
+  .home-button {
+    background-color: #4CAF50;
+    color: white;
+  }
+  
+  .register-button {
+    background-color: #2196F3;
+    color: white;
+  }
+  
+  .home-button:hover {
+    background-color: #45A049;
+  }
+  
+  .register-button:hover {
+    background-color: #1E88E5;
+  }
+  
+  .home-link {
+    display: block;
+    margin-top: 30px;
+    color: #2196F3;
+    text-decoration: none;
+    font-size: 1.2rem;
+  }
+  
+  .home-link:hover {
+    text-decoration: underline;
+  }
+  
+.home-button:active,
+.register-button:active {
+  transform: scale(0.95);
+  background-color: #d1d1d1;
+  transition: transform 0.1s, background-color 0.1s;
+}

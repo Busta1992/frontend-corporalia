@@ -204,20 +204,23 @@ useEffect(() => {
     .get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario`)
     .then((res) => {
       const datosConColor = res.data.map((row: Row) => {
-        const localColor = localStorage.getItem(`color-${row.codigo}`);
-        
-        const colorFinal =
-          localColor && localColor.trim() !== ""
-            ? (localColor as Color)
-            : (row.color || "white");
+  const localColor = localStorage.getItem(`color-${row.codigo}`);
+  let colorFinal: Color;
 
-        // Guardar en localStorage solo si el color del backend existe y no es vacío
-        if (!localColor && typeof row.color === "string" && row.color.trim() !== "") {
-          localStorage.setItem(`color-${row.codigo}`, row.color);
-        }
+  if (localColor && localColor.trim() !== "") {
+    colorFinal = localColor as Color;
+  } else if (row.color && row.color.trim() !== "") {
+    colorFinal = row.color as Color;
+    localStorage.setItem(`color-${row.codigo}`, row.color); // guardarlo
+    console.log(`✅ Guardado color desde backend para ${row.codigo}:`, row.color);
+  } else {
+    colorFinal = "white";
+    console.log(`⚪ Por defecto white para ${row.codigo}`);
+  }
 
-        return { ...row, color: colorFinal };
-      });
+  return { ...row, color: colorFinal };
+});
+
 
       setData(datosConColor);
       setOriginalData(datosConColor);

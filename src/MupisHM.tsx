@@ -745,17 +745,27 @@ useEffect(() => {
 
 const handleSave = async () => {
   try {
-    const datosLimpios = data.map((row) => ({
-      codigo: row.codigo || "",
-      campania: row.campania || "",
-      cp: row.cp || "",
-      municipio: row.municipio || "",
-      provincia: row.provincia || "",
-      observaciones: row.observaciones || "",
-      fechaInicio: row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null,
-      fechaFin: row.fecha_fin ? completarSegundos(row.fecha_fin) : null,
-      color: row.color || "white", // 👈 asegúrate de incluir este campo
-    }));
+    const datosLimpios = data.map((row) => {
+      const fechaInicioISO = row.fecha_inicio
+        ? new Date(row.fecha_inicio).toISOString().split(".")[0]
+        : null;
+
+      const fechaFinISO = row.fecha_fin
+        ? new Date(row.fecha_fin).toISOString().split(".")[0]
+        : null;
+
+      return {
+        codigo: row.codigo || "",
+        campania: row.campania || "",
+        cp: row.cp || "",
+        municipio: row.municipio || "",
+        provincia: row.provincia || "",
+        observaciones: row.observaciones || "",
+        fechaInicio: fechaInicioISO,
+        fechaFin: fechaFinISO,
+        color: row.color || "white",
+      };
+    });
 
     console.log("📤 Datos enviados al backend:", datosLimpios);
 
@@ -765,7 +775,7 @@ const handleSave = async () => {
         continue;
       }
 
-      await axios.post("/Corporalia/v1/mobiliario", row); // 👈 asegúrate que el backend acepta 'color'
+      await axios.post("/Corporalia/v1/mobiliario", row);
     }
 
     toast.success("✅ Cambios guardados correctamente.");

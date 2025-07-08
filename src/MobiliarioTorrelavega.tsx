@@ -203,13 +203,16 @@ useEffect(() => {
   axios
     .get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario`)
     .then((res) => {
-      // ✅ Recuperar el color desde localStorage si existe, o usar el del backend
       const datosConColor = res.data.map((row: Row) => {
-        const localColor = localStorage.getItem(`color-${row.codigo}`) as Color | null;
-        const colorFinal = localColor || row.color || "white";
+        const localColor = localStorage.getItem(`color-${row.codigo}`);
+        
+        const colorFinal =
+          localColor && localColor.trim() !== ""
+            ? (localColor as Color)
+            : (row.color || "white");
 
-        // Guardar en localStorage solo si aún no está guardado
-        if (!localColor && row.color) {
+        // Guardar en localStorage solo si el color del backend existe y no es vacío
+        if (!localColor && typeof row.color === "string" && row.color.trim() !== "") {
           localStorage.setItem(`color-${row.codigo}`, row.color);
         }
 
@@ -217,13 +220,12 @@ useEffect(() => {
       });
 
       setData(datosConColor);
-      setOriginalData(datosConColor); // usamos los datos ya corregidos
+      setOriginalData(datosConColor);
     })
     .catch((error) => {
       console.error("Error al obtener datos:", error);
     });
 }, []);
-
 
 
 

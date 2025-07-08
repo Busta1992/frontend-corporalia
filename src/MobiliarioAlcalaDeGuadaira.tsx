@@ -200,10 +200,27 @@ const fin = fecha_fin ? new Date(fecha_fin) : null;
 const [originalData, setOriginalData] = useState<Row[]>([]);
 
 useEffect(() => {
-  axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario`)
+  axios
+    .get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario`)
     .then((res) => {
-      setData(res.data);
-      setOriginalData(res.data); // ✅ para detectar cambios
+      // ✅ Recuperar el color desde localStorage si existe, o usar el del backend
+      const datosConColor = res.data.map((row: Row) => {
+        const localColor = localStorage.getItem(`color-${row.codigo}`) as Color | null;
+        const colorFinal = localColor || row.color || "white";
+
+        // Guardar en localStorage solo si aún no está guardado
+        if (!localColor && row.color) {
+          localStorage.setItem(`color-${row.codigo}`, row.color);
+        }
+
+        return { ...row, color: colorFinal };
+      });
+
+      setData(datosConColor);
+      setOriginalData(datosConColor); // usamos los datos ya corregidos
+    })
+    .catch((error) => {
+      console.error("Error al obtener datos:", error);
     });
 }, []);
 

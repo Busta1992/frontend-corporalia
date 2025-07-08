@@ -97,6 +97,18 @@ const Salamanca: React.FC = () => {
   if (valor === "Todos" || list.includes(valor)) return list;
   
 };
+const [originalData, setOriginalData] = useState<Row[]>([]); // NUEVO
+useEffect(() => {
+  axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/carreteras/carretera/Salamanca`)
+    .then((res) => {
+      setData(res.data);
+      setOriginalData(res.data); // Guardamos una copia original para filtros/reset
+    })
+    .catch((error) => {
+      console.error("Error al obtener datos de Salamanca:", error);
+    });
+}, []);
+
 
 const generarResumenAnual = () => {
   const resumen = {
@@ -140,6 +152,8 @@ const generarResumenAnual = () => {
 
   return resumen;
 };
+
+
 
 const generarTotalesMontadoLibres = () => {
   const resumen = generarResumenAnual();
@@ -234,9 +248,7 @@ const modelosDisponiblesRaw = [...new Set(
     .map((r) => r.modelo)
 )].filter(Boolean).sort();
 
-const modelosDisponibles = modelosDisponiblesRaw.includes(filterModelo)
-  ? modelosDisponiblesRaw
-  : [filterModelo, ...modelosDisponiblesRaw].filter(Boolean);
+
 
 
 const traserasDisponiblesRaw = [...new Set(
@@ -250,9 +262,6 @@ const traserasDisponiblesRaw = [...new Set(
     .map((r) => r.trasera)
 )].filter(Boolean).sort();
 
-const traserasDisponibles = traserasDisponiblesRaw.includes(filterTrasera)
-  ? traserasDisponiblesRaw
-  : [filterTrasera, ...traserasDisponiblesRaw].filter(Boolean);
 
 
 const campaniasDisponiblesRaw = [...new Set(
@@ -266,9 +275,7 @@ const campaniasDisponiblesRaw = [...new Set(
     .map((r) => r.campania)
 )].filter(Boolean).sort();
 
-const campaniasDisponibles = campaniasDisponiblesRaw.includes(filterCampania)
-  ? campaniasDisponiblesRaw
-  : [filterCampania, ...campaniasDisponiblesRaw].filter(Boolean);
+
 
 
 const lineasDisponiblesRaw = [...new Set(
@@ -281,9 +288,7 @@ const lineasDisponiblesRaw = [...new Set(
     .map((r) => r.lineas)
 )].filter(Boolean).sort();
 
-const lineasDisponibles = lineasDisponiblesRaw.includes(filterLinea)
-  ? lineasDisponiblesRaw
-  : [filterLinea, ...lineasDisponiblesRaw].filter(Boolean);
+
 
 
 const operadoresDisponiblesRaw = [...new Set(
@@ -296,9 +301,6 @@ const operadoresDisponiblesRaw = [...new Set(
     .map((r) => r.operador)
 )].filter(Boolean).sort();
 
-const operadoresDisponibles = operadoresDisponiblesRaw.includes(filterOperador)
-  ? operadoresDisponiblesRaw
-  : [filterOperador, ...operadoresDisponiblesRaw].filter(Boolean);
 
 
 const zonasDisponiblesRaw = [...new Set(
@@ -311,9 +313,7 @@ const zonasDisponiblesRaw = [...new Set(
     .map((r) => r.zona)
 )].filter(Boolean).sort();
 
-const zonasDisponibles = zonasDisponiblesRaw.includes(filterZona)
-  ? zonasDisponiblesRaw
-  : [filterZona, ...zonasDisponiblesRaw].filter(Boolean);
+
 
   const limpiarTexto = (texto: string): string => {
   return texto
@@ -335,9 +335,6 @@ const provinciasDisponiblesRaw = [...new Set(
     .map((r) => r.provincia)
 )].filter(Boolean).sort();
 
-const provinciasDisponibles = provinciasDisponiblesRaw.includes(filterProvincia)
-  ? provinciasDisponiblesRaw
-  : [filterProvincia, ...provinciasDisponiblesRaw].filter(Boolean);
 
 
 const estadoDesdeColor = (color: string): string => {
@@ -372,6 +369,52 @@ const arreglarTextoCorrupto = (texto: string): string => {
     .replace(/\s+/g, " ")
     .trim();
 };
+
+const filtros = {
+  lineas: filterLinea,
+  operador: filterOperador,
+  zona: filterZona,
+  provincia: filterProvincia,
+  modelo: filterModelo,
+  trasera: filterTrasera,
+  campania: filterCampania,
+};
+
+
+
+
+
+const obtenerOpcionesDisponibles = (
+  campo: keyof Row,
+  data: Row[],
+  filtros: { [key: string]: string }
+): string[] => {
+  const otrosFiltros = Object.entries(filtros).filter(([clave]) => clave !== campo);
+
+  const valores = data
+    .filter((row) =>
+      otrosFiltros.every(([clave, valor]) =>
+        valor === "Todos" ? true : row[clave as keyof Row] === valor
+      )
+    )
+    .map((row) => row[campo])
+    .filter(Boolean);
+
+  const unicos = [...new Set(valores)].sort();
+  return unicos.includes(filtros[campo]) ? unicos : [filtros[campo], ...unicos].filter(Boolean);
+};
+
+const modelosDisponibles = obtenerOpcionesDisponibles("modelo", data, filtros);
+const traserasDisponibles = obtenerOpcionesDisponibles("trasera", data, filtros);
+const campaniasDisponibles = obtenerOpcionesDisponibles("campania", data, filtros);
+const lineasDisponibles = obtenerOpcionesDisponibles("lineas", data, filtros);
+const operadoresDisponibles = obtenerOpcionesDisponibles("operador", data, filtros);
+const zonasDisponibles = obtenerOpcionesDisponibles("zona", data, filtros);
+const provinciasDisponibles = obtenerOpcionesDisponibles("provincia", data, filtros);
+
+
+
+
 
 
 
@@ -682,7 +725,7 @@ useEffect(() => {
 
   useEffect(() => {
   const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0); // Normalizar para comparar solo por fecha
+  hoy.setHours(0, 0, 0, 0); // Normalizar para comparar solo la fecha
 
   const fetchData = async () => {
     try {
@@ -694,9 +737,22 @@ useEffect(() => {
         let color: Color = "white";
 
         if (["white", "orange", "black", "red"].includes(row.color)) {
-          color = row.color; // ✅ Prioriza color del backend
+          color = row.color;
         } else if (savedColors[row.n_flota]) {
-          color = savedColors[row.n_flota]; // Solo si el backend no tiene color válido
+          color = savedColors[row.n_flota];
+        }
+
+        // Verificar caducidad
+        const fechaFin = row.fechaFin ? new Date(row.fechaFin) : null;
+        if (
+          fechaFin &&
+          !isNaN(fechaFin.getTime()) &&
+          fechaFin < hoy &&
+          (color === "red" || color === "orange" || color === "black")
+        ) {
+          // Eliminar color de localStorage
+          localStorage.removeItem(`color-${row.n_flota}`);
+          color = "white";
         }
 
         return {
@@ -728,27 +784,22 @@ useEffect(() => {
       });
 
       setData(formattedData);
-      console.log("Datos cargados:", formattedData);
-      setFechaSeleccionada(hoy); // ✅ Predeterminar el día actual
+      setFechaSeleccionada(hoy); // Seleccionar hoy por defecto
 
-      // ✅ Mostrar toasts para campañas caducadas
-      const caducadas = formattedData.filter((row) => {
-        if (!row.fechaFin) return false;
-
-        const fin = new Date(row.fechaFin);
-        if (isNaN(fin.getTime())) return false;
-
-        fin.setHours(23, 59, 59, 999);
-        return fin < hoy;
-      });
-
-      caducadas.forEach((row) => {
-        if (!avisadasRef.current.has(row.n_flota)) {
+      // Mostrar toasts para campañas caducadas solo una vez
+      formattedData.forEach((row) => {
+        const fin = row.fechaFin ? new Date(row.fechaFin) : null;
+        if (
+          fin &&
+          !isNaN(fin.getTime()) &&
+          fin < hoy &&
+          (row.color === "red" || row.color === "orange" || row.color === "black") &&
+          !avisadasRef.current.has(row.n_flota)
+        ) {
           toast.warn(`⚠️ La campaña con código ${row.n_flota} ha caducado.`);
           avisadasRef.current.add(row.n_flota);
         }
       });
-
     } catch (err) {
       toast.error("Error al cargar los datos de Málaga.");
     }
@@ -817,62 +868,103 @@ useEffect(() => {
 
   
 
+const filaVacia: Row = {
+  n_flota: "",
+  base: "",
+  carretera: "",
+  provincia: "",
+  zona: "",
+  der_delantera: "",
+  der_plus: "",
+  der_trasera: "",
+  extra: "",
+  izq_delantera: "",
+  izq_plus: "",
+  izq_trasera: "",
+  lineas: "",
+  matricula: "",
+  modelo: "",
+  operador: "",
+  plantilla: "",
+  trasera: "",
+  info_plus: "",
+  observaciones: "",
+  campania: "",
+  fechaInicio: "",
+  fechaFin: "",
+  color: "white",
+};
+
+const rowHasChanges = (original: Row, current: Row) => {
+  return (
+    original.base !== current.base ||
+    original.carretera !== current.carretera ||
+    original.provincia !== current.provincia ||
+    original.zona !== current.zona ||
+    original.der_delantera !== current.der_delantera ||
+    original.der_plus !== current.der_plus ||
+    original.der_trasera !== current.der_trasera ||
+    original.extra !== current.extra ||
+    original.izq_delantera !== current.izq_delantera ||
+    original.izq_plus !== current.izq_plus ||
+    original.izq_trasera !== current.izq_trasera ||
+    original.lineas !== current.lineas ||
+    original.matricula !== current.matricula ||
+    original.modelo !== current.modelo ||
+    original.operador !== current.operador ||
+    original.plantilla !== current.plantilla ||
+    original.trasera !== current.trasera ||
+    original.info_plus !== current.info_plus ||
+    original.observaciones !== current.observaciones ||
+    original.campania !== current.campania ||
+    original.fechaInicio !== current.fechaInicio ||
+    original.fechaFin !== current.fechaFin ||
+    original.color !== current.color
+  );
+};
+
 const handleSave = async () => {
   try {
-    const datosLimpios = data.map((row) => ({
-  ...row,
-  base: row.base || "",
-  carretera: row.carretera || "",
-  provincia: row.provincia || "",
-  zona: row.zona || "",
-  der_delantera: row.der_delantera || "",
-  der_plus: row.der_plus || "",
-  der_trasera: row.der_trasera || "",
-  extra: row.extra || "",
-  izq_delantera: row.izq_delantera || "",
-  izq_plus: row.izq_plus || "",
-  izq_trasera: row.izq_trasera || "",
-  lineas: row.lineas || "",
-  matricula: row.matricula || "",
-  modelo: row.modelo || "",
-  operador: row.operador || "",
-  plantilla: row.plantilla || "",
-  trasera: row.trasera || "",
-  info_plus: row.info_plus || "",
-  observaciones: row.observaciones || "",
-  campania: row.campania || "",
-  fechaInicio: row.fechaInicio ? completarSegundos(row.fechaInicio) : null,
-  fechaFin: row.fechaFin ? completarSegundos(row.fechaFin) : null,
-  color: row.color || "white", // ✅ Añadir esta línea
-}));
+    const filasModificadas = data
+      .filter((row) =>
+        row.n_flota &&
+        rowHasChanges(originalData.find((r) => r.n_flota === row.n_flota) || filaVacia, row)
+      )
+      .map((row) => {
+        const fechaInicio = row.fechaInicio ? completarSegundos(row.fechaInicio) : null;
+        const fechaFin = row.fechaFin ? completarSegundos(row.fechaFin) : null;
 
+        const formato = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+        if (
+          (fechaInicio && !formato.test(fechaInicio)) ||
+          (fechaFin && !formato.test(fechaFin))
+        ) {
+          toast.warn(`⚠️ Fecha inválida en ${row.n_flota}`);
+          return null;
+        }
 
-    console.log("🔍 Datos que se van a guardar:", datosLimpios);
+        return {
+          ...row,
+          fechaInicio,
+          fechaFin,
+          color: row.color || "white",
+        };
+      })
+      .filter(Boolean); // elimina null
 
-    for (const row of datosLimpios) {
-  if (!row.n_flota) {
-    toast.warn("Fila sin código no se ha guardado.");
-    continue;
-  }
+    if (filasModificadas.length === 0) {
+      toast.info("✅ No hay cambios para guardar.");
+      return;
+    }
 
-  // ✅ Este log es el que debes ver en consola
-  console.log("🧪 Enviando fila:", row);
-  console.log("🕒 FechaInicio:", row.fechaInicio, "Tipo:", typeof row.fechaInicio);
-  console.log("🕒 FechaFin:", row.fechaFin, "Tipo:", typeof row.fechaFin);
-
-  try {
-    const res = await axios.post("/Corporalia/v1/carreteras", row);
-    console.log("✅ Guardado:", row.n_flota, res.status);
-  } catch (err) {
-    console.error("❌ Error guardando:", row.n_flota, err);
-    toast.error(`Error guardando ${row.n_flota}`);
-  }
-}
-
+    await axios.post(
+      `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/carreteras/bulk-fast`,
+      filasModificadas
+    );
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
-    console.error("⛔ Error general en handleSave:", error);
+    console.error("⛔ Error al guardar:", error);
     toast.error("Error al guardar los datos.");
   }
 };
@@ -909,7 +1001,7 @@ const handleReset = (index: number) => {
     {
       n_flota: "", 
       carretera: "Salamanca",
-      provincia: "CastillayLeon",
+      provincia: "Castilla y Leon",
       zona: "",
       operador: "",
       lineas: "",
@@ -1218,7 +1310,7 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
       `}
     </style>
 
-    <h2 style={titleStyle}>Salamanca</h2>
+    <h2 style={titleStyle}>Extrwmadura</h2>
 
 
   <div
@@ -1913,6 +2005,7 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
     <div style={{ display: "inline-block", marginBottom: 20 }}>
       
 
+
 <style>
 {`
   .react-calendar__month-view__weekNumbers {
@@ -1966,6 +2059,7 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
 
 `}
 </style>
+
 
 
 
@@ -2171,8 +2265,7 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
   hoy.setHours(0, 0, 0, 0);
 
   
-
-  const filtrados = data.filter((r) => {
+const filtrados = data.filter((r) => {
   const seleccion = new Date(fechaSeleccionada!);
   seleccion.setHours(0, 0, 0, 0);
 
@@ -2190,7 +2283,7 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
     ? seleccion <= fin
     : false;
 
-  const esCaducado = fin && fin < new Date();
+  const expirado = fin && seleccion > fin;
 
   const coincideOperador = filterOperador === "Todos" || r.operador === filterOperador;
   const coincideLinea = filterLinea === "Todos" || r.lineas === filterLinea;
@@ -2202,7 +2295,11 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
 
   if (color === "white") {
     return (
-      (r.color === "white" || (!r.fechaInicio && !r.fechaFin)) &&
+      (
+        r.color === "white" ||
+        (!r.fechaInicio && !r.fechaFin) ||
+        expirado // ⬅️ aquí se añade lo importante
+      ) &&
       coincideOperador &&
       coincideLinea &&
       coincideZona &&
@@ -2215,7 +2312,7 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
     return (
       r.color === color &&
       enRango &&
-      (!mostrarCaducados || esCaducado) &&
+      (!mostrarCaducados || expirado) &&
       coincideOperador &&
       coincideLinea &&
       coincideZona &&
@@ -2226,6 +2323,7 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
     );
   }
 });
+
 
 
 

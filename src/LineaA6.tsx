@@ -97,6 +97,18 @@ const LineaA6: React.FC = () => {
   if (valor === "Todos" || list.includes(valor)) return list;
   
 };
+const [originalData, setOriginalData] = useState<Row[]>([]); // NUEVO
+useEffect(() => {
+  axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/carreteras/carretera/A6`)
+    .then((res) => {
+      setData(res.data);
+      setOriginalData(res.data); // Guardamos una copia original para filtros/reset
+    })
+    .catch((error) => {
+      console.error("Error al obtener datos de la línea A6:", error);
+    });
+}, []);
+
 
 const generarResumenAnual = () => {
   const resumen = {
@@ -856,62 +868,103 @@ useEffect(() => {
 
   
 
+const filaVacia: Row = {
+  n_flota: "",
+  base: "",
+  carretera: "",
+  provincia: "",
+  zona: "",
+  der_delantera: "",
+  der_plus: "",
+  der_trasera: "",
+  extra: "",
+  izq_delantera: "",
+  izq_plus: "",
+  izq_trasera: "",
+  lineas: "",
+  matricula: "",
+  modelo: "",
+  operador: "",
+  plantilla: "",
+  trasera: "",
+  info_plus: "",
+  observaciones: "",
+  campania: "",
+  fechaInicio: "",
+  fechaFin: "",
+  color: "white",
+};
+
+const rowHasChanges = (original: Row, current: Row) => {
+  return (
+    original.base !== current.base ||
+    original.carretera !== current.carretera ||
+    original.provincia !== current.provincia ||
+    original.zona !== current.zona ||
+    original.der_delantera !== current.der_delantera ||
+    original.der_plus !== current.der_plus ||
+    original.der_trasera !== current.der_trasera ||
+    original.extra !== current.extra ||
+    original.izq_delantera !== current.izq_delantera ||
+    original.izq_plus !== current.izq_plus ||
+    original.izq_trasera !== current.izq_trasera ||
+    original.lineas !== current.lineas ||
+    original.matricula !== current.matricula ||
+    original.modelo !== current.modelo ||
+    original.operador !== current.operador ||
+    original.plantilla !== current.plantilla ||
+    original.trasera !== current.trasera ||
+    original.info_plus !== current.info_plus ||
+    original.observaciones !== current.observaciones ||
+    original.campania !== current.campania ||
+    original.fechaInicio !== current.fechaInicio ||
+    original.fechaFin !== current.fechaFin ||
+    original.color !== current.color
+  );
+};
+
 const handleSave = async () => {
   try {
-    const datosLimpios = data.map((row) => ({
-  ...row,
-  base: row.base || "",
-  carretera: row.carretera || "",
-  provincia: row.provincia || "",
-  zona: row.zona || "",
-  der_delantera: row.der_delantera || "",
-  der_plus: row.der_plus || "",
-  der_trasera: row.der_trasera || "",
-  extra: row.extra || "",
-  izq_delantera: row.izq_delantera || "",
-  izq_plus: row.izq_plus || "",
-  izq_trasera: row.izq_trasera || "",
-  lineas: row.lineas || "",
-  matricula: row.matricula || "",
-  modelo: row.modelo || "",
-  operador: row.operador || "",
-  plantilla: row.plantilla || "",
-  trasera: row.trasera || "",
-  info_plus: row.info_plus || "",
-  observaciones: row.observaciones || "",
-  campania: row.campania || "",
-  fechaInicio: row.fechaInicio ? completarSegundos(row.fechaInicio) : null,
-  fechaFin: row.fechaFin ? completarSegundos(row.fechaFin) : null,
-  color: row.color || "white", // ✅ Añadir esta línea
-}));
+    const filasModificadas = data
+      .filter((row) =>
+        row.n_flota &&
+        rowHasChanges(originalData.find((r) => r.n_flota === row.n_flota) || filaVacia, row)
+      )
+      .map((row) => {
+        const fechaInicio = row.fechaInicio ? completarSegundos(row.fechaInicio) : null;
+        const fechaFin = row.fechaFin ? completarSegundos(row.fechaFin) : null;
 
+        const formato = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+        if (
+          (fechaInicio && !formato.test(fechaInicio)) ||
+          (fechaFin && !formato.test(fechaFin))
+        ) {
+          toast.warn(`⚠️ Fecha inválida en ${row.n_flota}`);
+          return null;
+        }
 
-    console.log("🔍 Datos que se van a guardar:", datosLimpios);
+        return {
+          ...row,
+          fechaInicio,
+          fechaFin,
+          color: row.color || "white",
+        };
+      })
+      .filter(Boolean); // elimina null
 
-    for (const row of datosLimpios) {
-  if (!row.n_flota) {
-    toast.warn("Fila sin código no se ha guardado.");
-    continue;
-  }
+    if (filasModificadas.length === 0) {
+      toast.info("✅ No hay cambios para guardar.");
+      return;
+    }
 
-  // ✅ Este log es el que debes ver en consola
-  console.log("🧪 Enviando fila:", row);
-  console.log("🕒 FechaInicio:", row.fechaInicio, "Tipo:", typeof row.fechaInicio);
-  console.log("🕒 FechaFin:", row.fechaFin, "Tipo:", typeof row.fechaFin);
-
-  try {
-    const res = await axios.post("/Corporalia/v1/carreteras", row);
-    console.log("✅ Guardado:", row.n_flota, res.status);
-  } catch (err) {
-    console.error("❌ Error guardando:", row.n_flota, err);
-    toast.error(`Error guardando ${row.n_flota}`);
-  }
-}
-
+    await axios.post(
+      `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/carreteras/bulk-fast`,
+      filasModificadas
+    );
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
-    console.error("⛔ Error general en handleSave:", error);
+    console.error("⛔ Error al guardar:", error);
     toast.error("Error al guardar los datos.");
   }
 };

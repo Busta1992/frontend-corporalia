@@ -130,6 +130,16 @@ const codigosDisponibles = codigosDisponiblesRaw.includes(filterCodigo)
   : [filterCodigo, ...codigosDisponiblesRaw].filter(Boolean);
 
 
+const [originalData, setOriginalData] = useState<Row[]>([]); // NUEVO
+
+useEffect(() => {
+  axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/BBDD/provincia/Sevilla`)
+    .then((res) => {
+      setData(res.data);
+      setOriginalData(res.data); // Guardamos una copia original
+    });
+}, []);  
+
 
 
 const generarResumenAnual = () => {
@@ -807,84 +817,87 @@ useEffect(() => {
 
 
 
+const rowHasChanges = (original: Row, current: Row) => {
+  return (
+    original.campania !== current.campania ||
+    original.club !== current.club ||
+    original.cp !== current.cp ||
+    original.direccion !== current.direccion ||
+    original.municipio !== current.municipio ||
+    original.provincia !== current.provincia ||
+    original.observaciones !== current.observaciones ||
+    original.fecha_inicio !== current.fecha_inicio ||
+    original.fecha_fin !== current.fecha_fin ||
+    original.color !== current.color
+  );
+};
 
-
-  
-
+const filaVacia: Row = {
+  codigo: "",
+  campania: "",
+  club: "",
+  cp: 0,
+  direccion: "",
+  municipio: "",
+  provincia: "",
+  observaciones: "",
+  fecha_inicio: "",
+  fecha_fin: "",
+  color: "white",
+};
 const handleSave = async () => {
   try {
-    const datosLimpios = data.map((row) => {
-      const fechaInicio = row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null;
-      const fechaFin = row.fecha_fin ? completarSegundos(row.fecha_fin) : null;
+    const filasModificadas = data
+      .filter((row) =>
+        row.codigo &&
+        rowHasChanges(originalData.find((r) => r.codigo === row.codigo) || filaVacia, row) // ✅ compara con fila vacía si no hay original
+      )
+      .map((row) => {
+        const fechaInicio = row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null;
+        const fechaFin = row.fecha_fin ? completarSegundos(row.fecha_fin) : null;
 
-      return {
-        codigo: row.codigo || "",
-        campania: row.campania || "",
-        club: row.club || "",
-        cp: typeof row.cp === "number" ? row.cp : 0,
-        direccion: row.direccion || "",
-        municipio: row.municipio || "",
-        provincia: row.provincia || "",
-        observaciones: row.observaciones || "",
-        fechaInicio,
-        fechaFin,
-        color: row.color || "white",
-      };
-    });
+        // Validar formato de fecha
+        const formatoFecha = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+        if (
+          (fechaInicio && !formatoFecha.test(fechaInicio)) ||
+          (fechaFin && !formatoFecha.test(fechaFin))
+        ) {
+          toast.warn(`⚠️ Fechas mal formateadas en código ${row.codigo}`);
+          return null;
+        }
 
-    for (const row of datosLimpios) {
-      if (!row.codigo) {
-        toast.warn("⚠️ Fila sin código no se ha guardado.");
-        continue;
-      }
+        return {
+          codigo: row.codigo || "",
+          campania: row.campania || "",
+          club: row.club || "",
+          cp: typeof row.cp === "number" ? row.cp : 0,
+          direccion: row.direccion || "",
+          municipio: row.municipio || "",
+          provincia: row.provincia || "",
+          observaciones: row.observaciones || "",
+          fechaInicio,
+          fechaFin,
+          color: row.color || "white",
+        };
+      })
+      .filter(Boolean); // 🔍 elimina los null por validaciones
 
-      // Validar formato de fecha solo si existen
-      const formatoFecha = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
-      if ((row.fechaInicio && !formatoFecha.test(row.fechaInicio)) ||
-          (row.fechaFin && !formatoFecha.test(row.fechaFin))) {
-        toast.warn(`⚠️ Fechas mal formateadas en código ${row.codigo}`);
-        continue;
-      }
-
-      console.log("🧪 Fila a guardar:", row); // 👈 Puedes dejarlo para depurar
-
-      try {
-        await axios.post(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/BBDD`, row);
-
-      } catch (error) {
-        console.error(`⛔ Error al guardar código ${row.codigo}`, error);
-        toast.error(`Error al guardar el código ${row.codigo}`);
-      }
+    if (filasModificadas.length === 0) {
+      toast.info("✅ No hay cambios para guardar.");
+      return;
     }
+
+    // ✅ Envío en lote real (rápido)
+    await axios.post(
+      `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/BBDD/bulk-fast`,
+      filasModificadas
+    );
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
     console.error("⛔ Error general en guardado:", error);
     toast.error("Error general al guardar los datos.");
   }
-};
-
-const handleResetRow = (index: number) => {
-  setData((prevData) => {
-    const nuevaData = [...prevData];
-    const filaAntes = nuevaData[index];
-
-    const actualizada: Row = {
-      ...filaAntes,
-      campania: "",
-      fecha_inicio: "",
-      fecha_fin: "",
-      color: "white" as Color, // ✅ Forzamos el tipo correcto
-    };
-
-    console.log("🔁 Fila antes de resetear:", filaAntes);
-    console.log("✅ Fila actualizada:", actualizada);
-
-    nuevaData[index] = actualizada;
-    return nuevaData;
-  });
-
-  toast.info("↺ Fila reseteada: campaña, fechas y color borrados");
 };
 
 

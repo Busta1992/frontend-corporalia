@@ -56,7 +56,7 @@ type Row = {
 
 const LOCAL_STORAGE_KEY = "MobiliarioAlcadaDeGuadaira-color-data";
 
-const MobiliarioAlcadaDeGuadaira: React.FC = () => {
+const MobiliarioAlcalaDeGuadaira: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Row[]>([]);
   const [vista, setVista] = useState<"calendario" | "resumen" | "total">("calendario");
@@ -196,6 +196,16 @@ const fin = fecha_fin ? new Date(fecha_fin) : null;
 
   return resumen;
 };
+
+const [originalData, setOriginalData] = useState<Row[]>([]);
+
+useEffect(() => {
+  axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario`)
+    .then((res) => {
+      setData(res.data);
+      setOriginalData(res.data); // ✅ para detectar cambios
+    });
+}, []);
 
 
 
@@ -743,37 +753,82 @@ useEffect(() => {
 
   
 
+const filaVacia: Row = {
+  codigo: "",
+  campania: "",
+  cp: "",
+  municipio: "",
+  provincia: "",
+  observaciones: "",
+  fecha_inicio: "",
+  fecha_fin: "",
+  color: "white",
+};
+
+const rowHasChanges = (original: Row, current: Row) => {
+  return (
+    original.campania !== current.campania ||
+    original.cp !== current.cp ||
+    original.municipio !== current.municipio ||
+    original.provincia !== current.provincia ||
+    original.observaciones !== current.observaciones ||
+    original.fecha_inicio !== current.fecha_inicio ||
+    original.fecha_fin !== current.fecha_fin ||
+    original.color !== current.color
+  );
+};
+
 const handleSave = async () => {
   try {
-    const datosLimpios = data.map((row) => ({
-      codigo: row.codigo || "",
-      campania: row.campania || "",
-      cp: row.cp || "",
-      municipio: row.municipio || "",
-      provincia: row.provincia || "",
-      observaciones: row.observaciones || "",
-      fechaInicio: row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null,
-      fechaFin: row.fecha_fin ? completarSegundos(row.fecha_fin) : null,
-      color: row.color || "white", // 👈 asegúrate de incluir este campo
-    }));
+    const filasModificadas = data
+      .filter((row) =>
+        row.codigo &&
+        rowHasChanges(originalData.find((r) => r.codigo === row.codigo) || filaVacia, row)
+      )
+      .map((row) => {
+        const fechaInicio = row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null;
+        const fechaFin = row.fecha_fin ? completarSegundos(row.fecha_fin) : null;
 
-    console.log("📤 Datos enviados al backend:", datosLimpios);
+        const formatoFecha = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+        if (
+          (fechaInicio && !formatoFecha.test(fechaInicio)) ||
+          (fechaFin && !formatoFecha.test(fechaFin))
+        ) {
+          toast.warn(`⚠️ Fechas mal formateadas en código ${row.codigo}`);
+          return null;
+        }
 
-    for (const row of datosLimpios) {
-      if (!row.codigo) {
-        toast.warn("Fila sin código no se ha guardado.");
-        continue;
-      }
+        return {
+          codigo: row.codigo || "",
+          campania: row.campania || "",
+          cp: typeof row.cp === "number" ? row.cp : 0,
+          municipio: row.municipio || "",
+          provincia: row.provincia || "",
+          observaciones: row.observaciones || "",
+          fechaInicio,
+          fechaFin,
+          color: row.color || "white",
+        };
+      })
+      .filter(Boolean); // elimina los null
 
-      await axios.post("/Corporalia/v1/mobiliario", row); // 👈 asegúrate que el backend acepta 'color'
+    if (filasModificadas.length === 0) {
+      toast.info("✅ No hay cambios para guardar.");
+      return;
     }
+
+    await axios.post(
+      `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario/bulk-fast`,
+      filasModificadas
+    );
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
-    console.error("⛔ Error en guardado:", error);
+    console.error("⛔ Error general en guardado:", error);
     toast.error("Error al guardar los datos.");
   }
 };
+
 
 
 
@@ -2488,5 +2543,5 @@ const addRowButtonStyle = { ...colorButtonStyle, backgroundColor: "#007BFF", col
 const saveButtonStyle = { ...colorButtonStyle, backgroundColor: "#28a745", color: "white" };
 const backButtonStyle = { ...colorButtonStyle, backgroundColor: "#dc3545", color: "white" };
 
-export default MobiliarioAlcadaDeGuadaira
+export default MobiliarioAlcalaDeGuadaira
 

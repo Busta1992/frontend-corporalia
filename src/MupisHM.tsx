@@ -279,6 +279,22 @@ const provinciasDisponibles = provinciasDisponiblesRaw.includes(filterProvincia)
     .trim();
 };
 
+const [originalData, setOriginalData] = useState<Row[]>([]); // <- AÑADIR ESTO
+
+useEffect(() => {
+  const fetchData = async () => {
+    try {
+      const response = await axios.get<Row[]>(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario`);
+      setData(response.data);
+      setOriginalData(response.data); // <- GUARDAR COPIA ORIGINAL
+    } catch (error) {
+      console.error("Error al obtener datos:", error);
+    }
+  };
+
+  fetchData();
+}, []);
+
 
 
 
@@ -741,49 +757,89 @@ useEffect(() => {
 
 
 
-  
+  const filaVacia: Row = {
+  codigo: "",
+  campania: "",
+  municipio: "",
+  provincia: "",
+  cp: "",
+  observaciones: "",
+  fecha_inicio: "",
+  fecha_fin: "",
+  color: "white",
+};
+
+const rowHasChanges = (original: Row, current: Row) => {
+  return (
+    original.campania !== current.campania ||
+    original.municipio !== current.municipio ||
+    original.provincia !== current.provincia ||
+    original.cp !== current.cp ||
+    original.observaciones !== current.observaciones ||
+    original.fecha_inicio !== current.fecha_inicio ||
+    original.fecha_fin !== current.fecha_fin ||
+    original.color !== current.color
+  );
+};
 
 const handleSave = async () => {
   try {
-    const datosLimpios = data.map((row) => {
-      const fechaInicioISO = row.fecha_inicio
-        ? new Date(row.fecha_inicio).toISOString().split(".")[0]
-        : null;
+    const completarSegundos = (fecha: string): string => {
+      if (!fecha.includes("T")) return "";
+      const [fechaParte, horaParte] = fecha.split("T");
+      const [hh = "00", mm = "00", ss = "00"] = horaParte.split(":");
+      return `${fechaParte}T${hh}:${mm}:${ss.padEnd(2, "0")}`;
+    };
 
-      const fechaFinISO = row.fecha_fin
-        ? new Date(row.fecha_fin).toISOString().split(".")[0]
-        : null;
+    const filasModificadas = data
+      .filter((row) =>
+        row.codigo &&
+        rowHasChanges(originalData.find((r) => r.codigo === row.codigo) || filaVacia, row)
+      )
+      .map((row) => {
+        const fechaInicio = row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null;
+        const fechaFin = row.fecha_fin ? completarSegundos(row.fecha_fin) : null;
 
-      return {
-        codigo: row.codigo || "",
-        campania: row.campania || "",
-        cp: row.cp || "",
-        municipio: row.municipio || "",
-        provincia: row.provincia || "",
-        observaciones: row.observaciones || "",
-        fechaInicio: fechaInicioISO,
-        fechaFin: fechaFinISO,
-        color: row.color || "white",
-      };
-    });
+        const formatoFecha = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
+        if (
+          (fechaInicio && !formatoFecha.test(fechaInicio)) ||
+          (fechaFin && !formatoFecha.test(fechaFin))
+        ) {
+          toast.warn(`⚠️ Fechas mal formateadas en código ${row.codigo}`);
+          return null;
+        }
 
-    console.log("📤 Datos enviados al backend:", datosLimpios);
+        return {
+          codigo: row.codigo || "",
+          campania: row.campania || "",
+          municipio: row.municipio || "",
+          provincia: row.provincia || "",
+          cp: row.cp || "",
+          observaciones: row.observaciones || "",
+          fechaInicio,
+          fechaFin,
+          color: row.color || "white",
+        };
+      })
+      .filter(Boolean);
 
-    for (const row of datosLimpios) {
-      if (!row.codigo) {
-        toast.warn("Fila sin código no se ha guardado.");
-        continue;
-      }
-
-      await axios.post("/Corporalia/v1/mobiliario", row);
+    if (filasModificadas.length === 0) {
+      toast.info("✅ No hay cambios para guardar.");
+      return;
     }
+
+    await axios.post(
+      `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/BBDD/bulk-fast`,
+      filasModificadas
+    );
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
-    console.error("⛔ Error en guardado:", error);
-    toast.error("Error al guardar los datos.");
+    console.error("⛔ Error general en guardado:", error);
+    toast.error("Error general al guardar los datos.");
   }
 };
+
 
 
 

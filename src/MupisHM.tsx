@@ -2334,9 +2334,12 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
         const rawValue = e.target.value;
         let finalValue = rawValue;
 
-        // Si es campo fecha, añade los segundos (:00)
-        if ((field === "fecha_inicio" || field === "fecha_fin") && rawValue.length === 16) {
-          finalValue = rawValue + ":00";
+        if ((field === "fecha_inicio" || field === "fecha_fin") && rawValue) {
+          const partes = rawValue.split("T");
+          // Si la hora tiene solo hh:mm, añadimos :00
+          if (partes.length === 2 && partes[1].length === 5) {
+            finalValue = `${rawValue}:00`;
+          }
         }
 
         handleInputChange(
@@ -2355,6 +2358,7 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
     />
   </td>
 ))}
+
 
 
 

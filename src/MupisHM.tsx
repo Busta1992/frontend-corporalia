@@ -197,38 +197,6 @@ const fin = fecha_fin ? new Date(fecha_fin) : null;
   return resumen;
 };
 
-const [originalData, setOriginalData] = useState<Row[]>([]);
-
-useEffect(() => {
-  axios
-    .get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario`)
-    .then((res) => {
-      const datosConColor = res.data.map((row: Row) => {
-        const localColor = localStorage.getItem(`color-${row.codigo}`);
-        
-        const colorFinal =
-          localColor && localColor.trim() !== ""
-            ? (localColor as Color)
-            : (row.color || "white");
-
-        // Guardar en localStorage solo si el color del backend existe y no es vacío
-        if (!localColor && typeof row.color === "string" && row.color.trim() !== "") {
-          localStorage.setItem(`color-${row.codigo}`, row.color);
-        }
-
-        return { ...row, color: colorFinal };
-      });
-
-      setData(datosConColor);
-      setOriginalData(datosConColor);
-    })
-    .catch((error) => {
-      console.error("Error al obtener datos:", error);
-    });
-}, []);
-
-
-
 
 
 
@@ -650,7 +618,7 @@ useEffect(() => {
 
   const fetchData = async () => {
     try {
-      const response = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario/municipio/MadridHM`);
+      const response = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario/provincia/MadridHM`);
 
       const savedColors = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
 
@@ -669,7 +637,7 @@ useEffect(() => {
     cp: row.cp || "",
     municipio: row.municipio && row.municipio.trim() !== ""
       ? row.municipio
-      : "Guadaira",
+      : "Madrid",
     provincia: row.provincia || "",
     observaciones: row.observaciones || "",
     fecha_inicio: row.fechaInicio ?? "",
@@ -708,7 +676,7 @@ useEffect(() => {
 
     } catch (err) {
       console.error("❌ Error cargando datos:", err);
-      toast.error("Error al cargar los datos de Guadaira.");
+      toast.error("Error al cargar los datos de MupisHM.");
     }
   };
 
@@ -775,82 +743,37 @@ useEffect(() => {
 
   
 
-const filaVacia: Row = {
-  codigo: "",
-  campania: "",
-  cp: "",
-  municipio: "",
-  provincia: "",
-  observaciones: "",
-  fecha_inicio: "",
-  fecha_fin: "",
-  color: "white",
-};
-
-const rowHasChanges = (original: Row, current: Row) => {
-  return (
-    original.campania !== current.campania ||
-    original.cp !== current.cp ||
-    original.municipio !== current.municipio ||
-    original.provincia !== current.provincia ||
-    original.observaciones !== current.observaciones ||
-    original.fecha_inicio !== current.fecha_inicio ||
-    original.fecha_fin !== current.fecha_fin ||
-    original.color !== current.color
-  );
-};
-
 const handleSave = async () => {
   try {
-    const filasModificadas = data
-      .filter((row) =>
-        row.codigo &&
-        rowHasChanges(originalData.find((r) => r.codigo === row.codigo) || filaVacia, row)
-      )
-      .map((row) => {
-        const fechaInicio = row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null;
-        const fechaFin = row.fecha_fin ? completarSegundos(row.fecha_fin) : null;
+    const datosLimpios = data.map((row) => ({
+      codigo: row.codigo || "",
+      campania: row.campania || "",
+      cp: row.cp || "",
+      municipio: row.municipio || "",
+      provincia: row.provincia || "",
+      observaciones: row.observaciones || "",
+      fechaInicio: row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null,
+      fechaFin: row.fecha_fin ? completarSegundos(row.fecha_fin) : null,
+      color: row.color || "white", // 👈 asegúrate de incluir este campo
+    }));
 
-        const formatoFecha = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
-        if (
-          (fechaInicio && !formatoFecha.test(fechaInicio)) ||
-          (fechaFin && !formatoFecha.test(fechaFin))
-        ) {
-          toast.warn(`⚠️ Fechas mal formateadas en código ${row.codigo}`);
-          return null;
-        }
+    console.log("📤 Datos enviados al backend:", datosLimpios);
 
-        return {
-          codigo: row.codigo || "",
-          campania: row.campania || "",
-          cp: typeof row.cp === "number" ? row.cp : 0,
-          municipio: row.municipio || "",
-          provincia: row.provincia || "",
-          observaciones: row.observaciones || "",
-          fechaInicio,
-          fechaFin,
-          color: row.color || "white",
-        };
-      })
-      .filter(Boolean); // elimina los null
+    for (const row of datosLimpios) {
+      if (!row.codigo) {
+        toast.warn("Fila sin código no se ha guardado.");
+        continue;
+      }
 
-    if (filasModificadas.length === 0) {
-      toast.info("✅ No hay cambios para guardar.");
-      return;
+      await axios.post("/Corporalia/v1/mobiliario", row); // 👈 asegúrate que el backend acepta 'color'
     }
-
-    await axios.post(
-      `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario/bulk-fast`,
-      filasModificadas
-    );
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
-    console.error("⛔ Error general en guardado:", error);
+    console.error("⛔ Error en guardado:", error);
     toast.error("Error al guardar los datos.");
   }
 };
-
 
 
 
@@ -868,8 +791,8 @@ const handleSave = async () => {
       codigo: "",
       campania: "",
       cp: "",
-      municipio: "Guadaira",
-      provincia: "Andalucía",
+      municipio: "Madrid",
+      provincia: "MadridHM",
       observaciones: "",
       fecha_inicio: "",
       fecha_fin: "",
@@ -1261,7 +1184,7 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
       `}
     </style>
 
-    <h2 style={titleStyle}>MupisHM</h2>
+    <h2 style={titleStyle}>Madrid</h2>
 
 
   <div
@@ -1959,6 +1882,7 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
       
 
 
+
 <style>
 {`
   .react-calendar__month-view__weekNumbers {
@@ -2227,7 +2151,7 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
 
   const coincideProvincia = filterProvincia === "Todos" || r.provincia === filterProvincia;
   const coincideCampania = filterCampania === "Todos" || r.campania === filterCampania;
-  const coincideMunicipio = filterMunicipio === "Todos" || r.municipio === filterMunicipio || (!r.municipio && filterMunicipio === "Guadaira");
+  const coincideMunicipio = filterMunicipio === "Todos" || r.municipio === filterMunicipio || (!r.municipio && filterMunicipio === "Madrid");
   const coincideCodigo = filterCodigo === "Todos" || r.codigo === filterCodigo;
 
   if (color === "white") {
@@ -2566,3 +2490,4 @@ const saveButtonStyle = { ...colorButtonStyle, backgroundColor: "#28a745", color
 const backButtonStyle = { ...colorButtonStyle, backgroundColor: "#dc3545", color: "white" };
 
 export default MupisHM
+

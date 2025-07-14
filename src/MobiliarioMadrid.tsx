@@ -13,7 +13,7 @@ const MobiliarioMadrid: React.FC = () => {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>🪧 Marquesinas</h1>
+      <h1 style={styles.title}>🪧 Mupis </h1>
 
       {/* Botón de volver al menú superior */}
       <div style={{ position: 'absolute', top: 20, left: 20 }}>

@@ -1310,7 +1310,7 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
       `}
     </style>
 
-    <h2 style={titleStyle}>Extrwmadura</h2>
+    <h2 style={titleStyle}>Murcia</h2>
 
 
   <div

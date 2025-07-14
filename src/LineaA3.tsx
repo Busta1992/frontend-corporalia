@@ -1000,7 +1000,7 @@ const handleReset = (index: number) => {
     ...prev,
     {
       n_flota: "", 
-      carretera: "A3",
+      carretera: "3",
       provincia: "Madrid",
       zona: "",
       operador: "",

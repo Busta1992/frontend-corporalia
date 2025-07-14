@@ -194,6 +194,33 @@ const generarTotalesMontadoLibres = () => {
     Libres: resumen.Libres.reduce((a, b) => a + b, 0),
   };
 };
+const [codigoHistorial, setCodigoHistorial] = useState<string | null>(null);
+
+// Función para abrir el modal:
+const abrirHistorial = (codigo: string) => {
+  setCodigoHistorial(codigo);
+};
+
+// Función para cerrar el modal:
+const cerrarHistorial = () => {
+  setCodigoHistorial(null);
+};
+
+// Filtro de datos para mostrar solo Montado y Reservado del código seleccionado:
+const historialFiltrado = codigoHistorial
+  ? data
+      .filter(
+        (row) =>
+          row.codigo === codigoHistorial &&
+          (row.color === "red" || row.color === "orange") &&
+          row.fecha_inicio &&
+          row.fecha_fin
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.fecha_inicio).getTime() - new Date(a.fecha_inicio).getTime()
+      )
+  : [];
 
 const generarResumenPorAnio = (anio: number) => {
   const resumen = {

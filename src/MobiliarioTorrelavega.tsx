@@ -754,23 +754,16 @@ const handleSave = async () => {
       observaciones: row.observaciones || "",
       fechaInicio: row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null,
       fechaFin: row.fecha_fin ? completarSegundos(row.fecha_fin) : null,
-      color: row.color || "white", // 👈 asegúrate de incluir este campo
+      color: row.color || "white",
     }));
 
-    console.log("📤 Datos enviados al backend:", datosLimpios);
+    console.log("📤 Enviando bulk-fast:", datosLimpios);
 
-    for (const row of datosLimpios) {
-      if (!row.codigo) {
-        toast.warn("Fila sin código no se ha guardado.");
-        continue;
-      }
-
-      await axios.post("/Corporalia/v1/mobiliario", row); // 👈 asegúrate que el backend acepta 'color'
-    }
+    await axios.post(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario/bulk-fast`, datosLimpios);
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
-    console.error("⛔ Error en guardado:", error);
+    console.error("⛔ Error al guardar:", error);
     toast.error("Error al guardar los datos.");
   }
 };
@@ -2107,7 +2100,7 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
         setFilterProvincia("Todos");
       setFilterCampania("Todos");
       setFilterMunicipio("Todos");
-      setFilterCodigo("Todos");
+      
       
       }}
       style={{

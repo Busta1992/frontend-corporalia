@@ -279,22 +279,6 @@ const provinciasDisponibles = provinciasDisponiblesRaw.includes(filterProvincia)
     .trim();
 };
 
-const [originalData, setOriginalData] = useState<Row[]>([]); // <- AÑADIR ESTO
-
-useEffect(() => {
-  const fetchData = async () => {
-    try {
-      const response = await axios.get<Row[]>(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario`);
-      setData(response.data);
-      setOriginalData(response.data); // <- GUARDAR COPIA ORIGINAL
-    } catch (error) {
-      console.error("Error al obtener datos:", error);
-    }
-  };
-
-  fetchData();
-}, []);
-
 
 
 
@@ -634,7 +618,7 @@ useEffect(() => {
 
   const fetchData = async () => {
     try {
-      const response = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario/provincia/MadridHM`);
+      const response = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario/municipio/Madrid`);
 
       const savedColors = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
 
@@ -692,7 +676,7 @@ useEffect(() => {
 
     } catch (err) {
       console.error("❌ Error cargando datos:", err);
-      toast.error("Error al cargar los datos de MupisHM.");
+      toast.error("Error al cargar los datos de Madrid.");
     }
   };
 
@@ -757,89 +741,32 @@ useEffect(() => {
 
 
 
-  const filaVacia: Row = {
-  codigo: "",
-  campania: "",
-  municipio: "",
-  provincia: "",
-  cp: "",
-  observaciones: "",
-  fecha_inicio: "",
-  fecha_fin: "",
-  color: "white",
-};
-
-const rowHasChanges = (original: Row, current: Row) => {
-  return (
-    original.campania !== current.campania ||
-    original.municipio !== current.municipio ||
-    original.provincia !== current.provincia ||
-    original.cp !== current.cp ||
-    original.observaciones !== current.observaciones ||
-    original.fecha_inicio !== current.fecha_inicio ||
-    original.fecha_fin !== current.fecha_fin ||
-    original.color !== current.color
-  );
-};
+  
 
 const handleSave = async () => {
   try {
-    const completarSegundos = (fecha: string): string => {
-      if (!fecha.includes("T")) return "";
-      const [fechaParte, horaParte] = fecha.split("T");
-      const [hh = "00", mm = "00", ss = "00"] = horaParte.split(":");
-      return `${fechaParte}T${hh}:${mm}:${ss.padEnd(2, "0")}`;
-    };
+    const datosLimpios = data.map((row) => ({
+      codigo: row.codigo || "",
+      campania: row.campania || "",
+      cp: row.cp || "",
+      municipio: row.municipio || "",
+      provincia: row.provincia || "",
+      observaciones: row.observaciones || "",
+      fechaInicio: row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null,
+      fechaFin: row.fecha_fin ? completarSegundos(row.fecha_fin) : null,
+      color: row.color || "white",
+    }));
 
-    const filasModificadas = data
-      .filter((row) =>
-        row.codigo &&
-        rowHasChanges(originalData.find((r) => r.codigo === row.codigo) || filaVacia, row)
-      )
-      .map((row) => {
-        const fechaInicio = row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null;
-        const fechaFin = row.fecha_fin ? completarSegundos(row.fecha_fin) : null;
+    console.log("📤 Enviando bulk-fast:", datosLimpios);
 
-        const formatoFecha = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
-        if (
-          (fechaInicio && !formatoFecha.test(fechaInicio)) ||
-          (fechaFin && !formatoFecha.test(fechaFin))
-        ) {
-          toast.warn(`⚠️ Fechas mal formateadas en código ${row.codigo}`);
-          return null;
-        }
-
-        return {
-          codigo: row.codigo || "",
-          campania: row.campania || "",
-          municipio: row.municipio || "",
-          provincia: row.provincia || "",
-          cp: row.cp || "",
-          observaciones: row.observaciones || "",
-          fechaInicio,
-          fechaFin,
-          color: row.color || "white",
-        };
-      })
-      .filter(Boolean);
-
-    if (filasModificadas.length === 0) {
-      toast.info("✅ No hay cambios para guardar.");
-      return;
-    }
-
-    await axios.post(
-      `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/BBDD/bulk-fast`,
-      filasModificadas
-    );
+    await axios.post(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/mobiliario/bulk-fast`, datosLimpios);
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
-    console.error("⛔ Error general en guardado:", error);
-    toast.error("Error general al guardar los datos.");
+    console.error("⛔ Error al guardar:", error);
+    toast.error("Error al guardar los datos.");
   }
 };
-
 
 
 
@@ -858,7 +785,7 @@ const handleSave = async () => {
       campania: "",
       cp: "",
       municipio: "Madrid",
-      provincia: "MadridHM",
+      provincia: "Madrid",
       observaciones: "",
       fecha_inicio: "",
       fecha_fin: "",
@@ -2173,7 +2100,7 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
         setFilterProvincia("Todos");
       setFilterCampania("Todos");
       setFilterMunicipio("Todos");
-      setFilterCodigo("Todos");
+      
       
       }}
       style={{
@@ -2390,12 +2317,9 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
         const rawValue = e.target.value;
         let finalValue = rawValue;
 
-        if ((field === "fecha_inicio" || field === "fecha_fin") && rawValue) {
-          const partes = rawValue.split("T");
-          // Si la hora tiene solo hh:mm, añadimos :00
-          if (partes.length === 2 && partes[1].length === 5) {
-            finalValue = `${rawValue}:00`;
-          }
+        // Si es campo fecha, añade los segundos (:00)
+        if ((field === "fecha_inicio" || field === "fecha_fin") && rawValue.length === 16) {
+          finalValue = rawValue + ":00";
         }
 
         handleInputChange(
@@ -2414,7 +2338,6 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
     />
   </td>
 ))}
-
 
 
 

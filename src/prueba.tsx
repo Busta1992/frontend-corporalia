@@ -54,7 +54,7 @@ type Row = {
   color: "white" | "orange" | "black" | "red";
 };
 
-const LOCAL_STORAGE_KEY = "MobiliarioAlcadaDeGuadaira-color-data";
+const LOCAL_STORAGE_KEY = "MobiliarioAlcadaDe-color-data";
 
 const MobiliarioAlcadaDeGuadaira: React.FC = () => {
   const [error, setError] = useState<string | null>(null);

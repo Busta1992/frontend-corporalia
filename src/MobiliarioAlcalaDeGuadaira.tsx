@@ -15,7 +15,9 @@ import { Doughnut } from "react-chartjs-2";
 import "react-datepicker/dist/react-datepicker.css";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css"; // NECESARIO para mostrar el calendario
+import CalendarTable1 from "./CalendarTable1";
 
+import { startOfDay, isBefore, parseISO } from "date-fns";
 
 
 import autoTable from 'jspdf-autotable';
@@ -54,9 +56,9 @@ type Row = {
   color: "white" | "orange" | "black" | "red";
 };
 
-const LOCAL_STORAGE_KEY = "MobiliarioAlcadaDeGuadaira-color-data";
+const LOCAL_STORAGE_KEY = "MobiliarioAlcalaDeGuadaira-color-data";
 
-const MobiliarioAlcadaDeGuadaira: React.FC = () => {
+const MobiliarioAlcalaDeGuadaira: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Row[]>([]);
   const [vista, setVista] = useState<"calendario" | "resumen" | "total">("calendario");
@@ -70,8 +72,36 @@ const MobiliarioAlcadaDeGuadaira: React.FC = () => {
 }));
 
 
+const [historial, setHistorial] = useState<Row[]>([]);
+const [mostrarHistorial, setMostrarHistorial] = useState(false);
+const [codigoSeleccionado, setCodigoSeleccionado] = useState<string | null>(null);
+// justo debajo de tus imports...
+const logHistorial = (row: Row) => {
+  const key = `historial-${row.codigo}`;
+  const existing: Row[] = JSON.parse(localStorage.getItem(key) || "[]");
+  existing.push({ ...row });        // clonamos TODO el estado previo, color incluido
+  localStorage.setItem(key, JSON.stringify(existing));
+};
 
-  
+
+const [isDirty, setIsDirty] = useState(false);
+// Ref para leer instantáneamente en el listener de popstate
+const isDirtyRef = useRef(false);
+
+// Cada vez que marques dirty, actualiza también la ref
+const markDirty = () => {
+  setIsDirty(true);
+  isDirtyRef.current = true;
+};
+
+const abrirHistorial = (codigo: string) => {
+  setCodigoSeleccionado(codigo);
+  setMostrarHistorial(true);
+};
+const cerrarHistorial = () => {
+  setMostrarHistorial(false);
+  setCodigoSeleccionado(null);
+};
   
   
 
@@ -94,7 +124,24 @@ const MobiliarioAlcadaDeGuadaira: React.FC = () => {
   
 };
 
+const getDisplayColor = (row: Row, date: Date | null): Color => {
+  // 1️⃣ Si no hay fecha seleccionada, lo pintamos siempre de blanco
+  if (!date) return "white";
 
+  // 2️⃣ Parsear inicio/fin como antes
+  const inicio = parseDate(row.fecha_inicio);
+  const fin    = parseDate(row.fecha_fin);
+  if (!inicio || !fin) return "white";
+
+  // 3️⃣ Normalizar a medianoche
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  inicio.setHours(0, 0, 0, 0);
+  fin.setHours(0, 0, 0, 0);
+
+  // 4️⃣ Dentro o fuera de rango
+  return inicio <= d && d <= fin ? row.color : "white";
+};
 
 
 
@@ -197,9 +244,48 @@ const fin = fecha_fin ? new Date(fecha_fin) : null;
   return resumen;
 };
 
+const [filters, setFilters] = useState<{ [key: string]: string }>({
+  codigo: "Todos",
+  campania: "Todos",
+  cp: "Todos",
+  municipio: "Todos",
+  provincia: "Todos",
+  observaciones: "Todos",
+  fecha_inicio: "Todos",
+  fecha_fin: "Todos",
+});
 
 
 
+// estilos para el overlay completo (fondo semitransparente)
+const overlayStyle: React.CSSProperties = {
+  position: "fixed",
+  top: 0, left: 0,
+  width: "100vw", height: "100vh",
+  backgroundColor: "rgba(0,0,0,0.5)",
+  display: "flex", justifyContent: "center", alignItems: "center",
+  zIndex: 9999,
+};
+
+// estilos para la caja interior del modal
+const modalStyle: React.CSSProperties = {
+  background: "#fff",
+  padding: 20,
+  borderRadius: 8,
+  maxWidth: "90%",
+  maxHeight: "80%",
+  overflow: "auto",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+};
+
+// estilos para cada celda de la tabla
+const cellStyle: React.CSSProperties = {
+  border: "1px solid #ccc",
+  padding: 8,
+  
+  whiteSpace: "nowrap",
+  textAlign: "center",
+};
 
 
 
@@ -803,21 +889,57 @@ const handleSave = async () => {
 };
 
 
-
-  const handleInputChange = (index: number, field: keyof Row, value: string) => {
+const handleInputChange = (index: number, field: keyof Row, value: string) => {
   setData((prevData) => {
     const newData = [...prevData];
 
-    // Si el campo es de fecha, añade los segundos si no están
     if ((field === "fecha_inicio" || field === "fecha_fin") && value.length === 16) {
-      value = value + ":00"; // completa a formato ISO con segundos
+      value = value + ":00";
     }
 
     newData[index] = { ...newData[index], [field]: value };
     console.log("➡️ Editando:", newData[index]);
     return newData;
   });
+  // ← aquí marcas que hay cambios sin guardar
+  markDirty();
 };
+
+  
+ 
+
+// Reemplaza handlePop por handleBackClick
+const handleBackClick = () => {
+  // Si hay cambios sin guardar, preguntamos
+  if (
+    isDirtyRef.current &&
+    !window.confirm("Tienes cambios sin guardar. ¿Seguro que quieres salir sin guardar?")
+  ) {
+    return; // cancelamos la navegación atrás
+  }
+  // Si confirma o no hay nada pendiente, retrocedemos en el historial
+  window.history.back();
+};
+
+useEffect(() => {
+  const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (isDirtyRef.current) {
+      // Chrome y modernos ignoran el mensaje custom, pero con esto ya piden confirmación
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  };
+
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  return () => {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+  };
+}, []);
+
+
+
+
+
 
 
   const theadStyle: React.CSSProperties = {
@@ -850,238 +972,44 @@ const handleSave = async () => {
     }
   };
   
+    
   
-  type CalendarTableProps = {
-  rows: Row[];
-  filters: { [key: string]: string };
-  setFilters: React.Dispatch<React.SetStateAction<{ [key: string]: string }>>;
-  handleInputChange: (index: number, field: keyof Row, value: string) => void;
-};
+  
+// ➊ En handleColorChange, reemplaza tu actual por esto:
+const handleColorChange = (index: number, newColor: Color) => {
+  setData(prev => {
+    const newData = [...prev];
+    const row     = newData[index];
 
-const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters, handleInputChange }) => {
-  const campos = [
-  "codigo",
-  "campania",
-  "cp",
-  "municipio",
-  "provincia",
-  "observaciones",
-  "fecha_inicio",
-  "fecha_fin",
-];
+    // Solo grabamos historial si viene de un color distinto de blanco
+    if (row.color !== newColor && row.color !== "white") {
+      logHistorial(row);
+    }
 
-  const theadStyle: React.CSSProperties = {
-    position: "sticky",
-    top: 0,
-    backgroundColor: "#ddd",
-    zIndex: 2,
-    height: "50px",
-  };
+    // Aplicar el reset (white) o cambio de color
+    if (newColor === "white") {
+      newData[index] = {
+        ...row,
+        color: "white",
+        fecha_inicio: "",
+        fecha_fin:    "",
+        campania:    "",
+        observaciones:"",
+      };
+    } else {
+      if (!row.fecha_inicio || !row.fecha_fin) {
+        alert("⚠️ Debes introducir fecha de inicio y fin antes de cambiar el estado.");
+        return prev;
+      }
+      newData[index] = { ...row, color: newColor };
+    }
 
-  const filteredRows = rows.filter((row) => {
-    return Object.entries(filters).every(([key, value]) => {
-      if (value === "Todos") return true;
-      const rowValue = (row as any)[key];
-      return rowValue?.toString().trim().toLowerCase() === value.toLowerCase();
-    });
+    return newData;
   });
-
-  const resetFilters = () => {
-    const cleanFilters: { [key: string]: string } = {};
-    campos.forEach((campo) => {
-      cleanFilters[campo] = "Todos";
-    });
-    setFilters(cleanFilters);
-  };
-
-  return (
-    <div style={{
-      overflowX: "auto",
-      overflowY: "auto",
-      width: "100%",
-      marginBottom: 30,
-      maxHeight: 300,
-      border: "1px solid #ccc",
-      borderRadius: "6px"
-    }}>
-      <div style={{ marginBottom: 10 }}>
-        <button onClick={resetFilters} style={{
-          padding: "6px 10px",
-          borderRadius: "5px",
-          backgroundColor: "#007bff",
-          color: "white",
-          fontWeight: "bold",
-          border: "none",
-          cursor: "pointer"
-        }}>
-          🔄 Limpiar filtros
-        </button>
-      </div>
-
-      <table style={{ width: "max-content", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th style={theadStyle}>Acciones</th>
-            {campos.map((label, i) => (
-              <th key={i} style={theadStyle}>{label}</th>
-            ))}
-          </tr>
-
-          <tr>
-            <td></td>
-            {campos.map((field, i) => {
-              const values = [...new Set(rows.map((r) => r[field as keyof Row]))]
-                .filter(Boolean)
-                .sort((a, b) => a?.toString().localeCompare(b?.toString()));
-
-              return (
-                <td key={i}>
-                  <select
-                    value={filters[field] || "Todos"}
-                    onChange={(e) =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        [field]: e.target.value,
-                      }))
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "4px",
-                      backgroundColor: "#f0f0f0",
-                      fontSize: "14px",
-                    }}
-                  >
-                    <option value="Todos">Todos</option>
-                    {values.map((v) => (
-                      <option key={v} value={v}>{v}</option>
-                    ))}
-                  </select>
-                </td>
-              );
-            })}
-          </tr>
-        </thead>
-<tbody>
-  {filteredRows.map((row, index) => (
-    <tr key={index} style={{ backgroundColor: row.color }}>
-      <td>
-        {/* Aquí puedes insertar tus botones de acción personalizados */}
-      </td>
-      {campos.map((field) => (
-        <td key={field}>
-          {field === "fecha_inicio" || field === "fecha_fin" ? (
-            <input
-              type="datetime-local"
-              value={
-                row[field as keyof Row]
-                  ? (row[field as keyof Row] as string).slice(0, 16)
-                  : ""
-              }
-              onChange={(e) =>
-                handleInputChange(
-                  index,
-                  field as keyof Row,
-                  e.target.value
-                )
-              }
-              style={{
-                padding: "5px",
-                borderRadius: "4px",
-                border: "1px solid #ccc",
-                backgroundColor: "#f9f9f9",
-                width: "100%",
-              }}
-            />
-          ) : (
-            <input
-              type="text"
-              value={row[field as keyof Row] || ""}
-              onChange={(e) =>
-                handleInputChange(index, field as keyof Row, e.target.value)
-              }
-              style={{
-                padding: "5px",
-                borderRadius: "4px",
-                border: "1px solid #ccc",
-                backgroundColor: "#f9f9f9",
-                width: "100%",
-              }}
-            />
-          )}
-        </td>
-      ))}
-    </tr>
-  ))}
-</tbody>
-
-
-
-
-
-
-
-<style>
-  {`
-    .react-datepicker-popper {
-      z-index: 9999 !important;
-    }
-    .date-picker-wrapper input {
-      width: 100%;
-      padding: 5px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      background-color: #f9f9f9;
-    }
-  `}
-</style>
-
-
-
-      </table>
-    </div>
-  );
 };
-  
-  
 
-  const handleColorChange = (index: number, color: Color) => {
-    setData((prevData) => {
-      const newData = [...prevData];
-  
-      // Si se quiere asignar un color distinto de white, verificar fechas
-      if (color !== "white") {
-        const { fecha_inicio, fecha_fin } = newData[index];
-        if (!fecha_inicio || !fecha_fin) {
-          alert("⚠️ Debes introducir fecha de inicio y fin antes de cambiar el estado.");
-          return prevData; // no actualiza nada
-        }
-      }
-  
-      // Si se selecciona "white", se limpian otros campos
-      if (color === "white") {
-        newData[index] = {
-          ...newData[index],
-          color,
-          fecha_inicio: "",
-          fecha_fin: "",
-          campania: "",
-          observaciones: "",
-        };
-      } else {
-        newData[index] = {
-          ...newData[index],
-          color,
-        };
-      }
-  
-      // Guardar en localStorage
-      const savedColors = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
-      savedColors[newData[index].codigo] = color;
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(savedColors));
-  
-      return newData;
-    });
-  };
+
+
 
 
  const parseDate = (fecha: string | null | undefined): Date | null => {
@@ -1184,7 +1112,7 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
       `}
     </style>
 
-    <h2 style={titleStyle}>ALcala de Guadaira</h2>
+    <h2 style={titleStyle}>Guadaira</h2>
 
 
   <div
@@ -1199,26 +1127,26 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
     borderRadius: "12px",
   }}
 >
-  {/* Volver Atrás */}
-  <button
-    onClick={() => window.history.back()}
-    style={{
-      padding: "10px 20px",
-      borderRadius: "10px",
-      background: "linear-gradient(45deg, #ff4d4d, #d11a2a)",
-      color: "white",
-      fontWeight: "bold",
-      fontSize: "15px",
-      border: "none",
-      cursor: "pointer",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-      transition: "all 0.2s ease-in-out",
-    }}
-    onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-    onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
-  >
-    🔙 Volver Atrás
-  </button>
+ <button
+  onClick={handleBackClick}
+  style={{
+    padding: "10px 20px",
+    borderRadius: "10px",
+    background: "linear-gradient(45deg, #ff4d4d, #d11a2a)",
+    color: "white",
+    fontWeight: "bold",
+    fontSize: "15px",
+    border: "none",
+    cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+    transition: "all 0.2s ease-in-out",
+  }}
+  onMouseOver={e => (e.currentTarget.style.transform = "scale(1.05)")}
+  onMouseOut={e => (e.currentTarget.style.transform = "scale(1)")}
+>
+  🔙 Volver Atrás
+</button>
+
 
   {/* Guardar Cambios */}
   <button
@@ -2061,6 +1989,8 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
 
       
       <>
+
+      
       
       {/* Filtros generales por operador y línea */}
 <div
@@ -2127,60 +2057,30 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
 
 
 
+
+
        {["orange", "black", "red", "white"].map((color) => {
   const colorLabels: { [key in Color]: string } = {
     orange: "🟠 Reservados",
-    black: "⚫ No usar",
-    red: "🔴 Montados",
-    white: "⚪ Libres",
+    black:  "⚫ No usar",
+    red:    "🔴 Montados",
+    white:  "⚪ Libres",
   };
 
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-
-  const filtrados = data.filter((r) => {
   const seleccion = new Date(fechaSeleccionada!);
   seleccion.setHours(0, 0, 0, 0);
 
-  const inicio = r.fecha_inicio ? new Date(completarSegundos(r.fecha_inicio)) : null;
-  const fin = r.fecha_fin ? new Date(completarSegundos(r.fecha_fin)) : null;
+  const filtrados = data.filter((r) => {
+    const inicio = r.fecha_inicio
+      ? new Date(completarSegundos(r.fecha_inicio))
+      : null;
+    const fin = r.fecha_fin
+      ? new Date(completarSegundos(r.fecha_fin))
+      : null;
 
-  if (inicio) inicio.setHours(0, 0, 0, 0);
-  if (fin) fin.setHours(0, 0, 0, 0);
+    if (inicio) inicio.setHours(0, 0, 0, 0);
+    if (fin)    fin.setHours(0, 0, 0, 0);
 
-  const coincideProvincia = filterProvincia === "Todos" || r.provincia === filterProvincia;
-  const coincideCampania = filterCampania === "Todos" || r.campania === filterCampania;
-  const coincideMunicipio = filterMunicipio === "Todos" || r.municipio === filterMunicipio || (!r.municipio && filterMunicipio === "Guadaira");
-  const coincideCodigo = filterCodigo === "Todos" || r.codigo === filterCodigo;
-
-  if (color === "white") {
-    const estaOcupadoEnFecha =
-  (inicio && fin && seleccion >= inicio && seleccion <= fin) ||
-  (inicio && !fin && seleccion > inicio) || // 🔄 antes era >=
-  (!inicio && fin && seleccion <= fin);
-
-
-    const estaDisponible = true; // ⚪ siempre se muestra si es white
-
-
-    console.log("🧪 Libre:", {
-      codigo: r.codigo,
-      estaDisponible,
-      coincideMunicipio,
-      coincideCampania,
-      coincideProvincia,
-      coincideCodigo,
-    });
-
-    return (
-      r.color === "white" &&
-      estaDisponible &&
-      coincideProvincia &&
-      coincideCampania &&
-      coincideMunicipio &&
-      coincideCodigo
-    );
-  } else {
     const enRango = inicio && fin
       ? seleccion >= inicio && seleccion <= fin
       : inicio
@@ -2189,190 +2089,328 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
       ? seleccion <= fin
       : false;
 
-    const esCaducado = fin && fin < new Date();
+    const coincideProvincia =
+      filterProvincia === "Todos" || r.provincia === filterProvincia;
+    const coincideCampania =
+      filterCampania === "Todos" || r.campania === filterCampania;
+    const coincideMunicipio =
+      filterMunicipio === "Todos" || r.municipio === filterMunicipio;
+    const coincideCodigo =
+      filterCodigo === "Todos" || r.codigo === filterCodigo;
 
+    if (color === "white") {
+      // blancos y fuera de rango
+      return (
+        coincideProvincia &&
+        coincideCampania &&
+        coincideMunicipio &&
+        coincideCodigo &&
+        (r.color === "white" || !enRango)
+      );
+    }
+
+    // otros colores solo en rango
     return (
       r.color === color &&
       enRango &&
-      (!mostrarCaducados || esCaducado) &&
+      (!mostrarCaducados || (fin! < new Date())) &&
       coincideProvincia &&
       coincideCampania &&
       coincideMunicipio &&
       coincideCodigo
     );
-  }
-});
+  });
 
+  return (
+    <div key={color}>
+      <h4 style={sectionTitle}>
+        {colorLabels[color as Color]} el{" "}
+        {fechaSeleccionada!.toLocaleDateString()}
+      </h4>
 
-
-
-
-
-
-
-
-
-
-
-          return (
-            <div key={color}>
-              
-  <h4 style={sectionTitle}>
-    {colorLabels[color as Color]} el{" "}
-    {fechaSeleccionada.toLocaleDateString()}
-  </h4>
-
-  {filtrados.length > 0 ? (
-    <div style={{
-      maxHeight: "300px",
-      overflowY: "auto",
-      overflowX: "auto",
-      width: "100%",
-      marginBottom: 30,
-      border: "1px solid #ccc",
-      borderRadius: "6px"
-    }}>
-      <table style={tableStyle}>
-        <thead style={{
-          position: "sticky",
-          top: 0,
-          backgroundColor: "#ddd",
-          zIndex: 1
-        }}>
-          <tr>
-            <th style={{ position: "sticky", left: 0, backgroundColor: "#ddd", zIndex: 2 }}>Acciones</th>
-            <th>Código</th>
-<th>Campaña</th>
-<th>CP</th>
-<th>Municipio</th>
-<th>Provincia</th>
-<th>Observaciones</th>
-<th>Fecha Inicio</th>
-<th>Fecha Fin</th>
-
-
-          </tr>
-        </thead>
-        <tbody>
-          {filtrados.map((row, index) => (
-            <tr
-              key={index}
+      {filtrados.length > 0 ? (
+        <div
+          style={{
+            maxHeight: "300px",
+            overflowY: "auto",
+            overflowX: "auto",
+            width: "100%",
+            marginBottom: 30,
+            border: "1px solid #ccc",
+            borderRadius: "6px",
+          }}
+        >
+          <table style={tableStyle}>
+            <thead
               style={{
-                backgroundColor: (() => {
-                  const fin = row.fecha_fin
-                    ? new Date(parse(row.fecha_fin, "dd/MM/yyyy HH:mm", new Date()).setHours(23, 59, 59, 999))
-                    : null;
-                  const hoy = new Date();
-                  hoy.setHours(0, 0, 0, 0);
-                  return fin && fin < hoy ? "white" : row.color;
-                })(),
+                position: "sticky",
+                top: 0,
+                backgroundColor: "#ddd",
+                zIndex: 1,
               }}
             >
-              <td style={{ position: "sticky", left: 0, backgroundColor: "#fff", zIndex: 1 }}>
-                <div style={actionButtonGroup}>
-                  {["orange", "black", "red", "white"].map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => handleColorChange(data.indexOf(row), c as Color)}
-                      style={{
-                        ...colorButtonStyle,
-                        backgroundColor: c === "white" ? "#f1f1f1" : c === "black" ? "black" : c,
-                        color: c === "white" ? "#000" : "#fff",
-                        border: c === "black" ? "2px solid black" : "none",
-                      }}
-                    >
-                      {c === "orange"
-                        ? "Reservado"
-                        : c === "black"
-                        ? "No usar"
-                        : c === "red"
-                        ? "Montado"
-                        : "Resetear"}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => handleDelete(row.codigo)}
-                    style={{ ...colorButtonStyle, backgroundColor: "red", color: "white" }}
-                  >
-                    Eliminar
-                  </button>
-                </div>
-              </td>
+              <tr>
+                <th
+                  style={{
+                    position: "sticky",
+                    left: 0,
+                    backgroundColor: "#ddd",
+                    zIndex: 2,
+                  }}
+                >
+                  Acciones
+                </th>
+                <th>Código</th>
+                <th>Campaña</th>
+                <th>CP</th>
+                <th>Municipio</th>
+                <th>Provincia</th>
+                <th>Observaciones</th>
+                <th>Fecha Inicio</th>
+                <th>Fecha Fin</th>
+                <th>Eliminar</th>
+              </tr>
+            </thead>
+            <tbody>
+   {filtrados.map((row, idx) => {
+    // 1️⃣ Calculamos el índice en el array original `data`
+    const dataIndex = data.findIndex(r => r.codigo === row.codigo);
+    if (dataIndex === -1) return null; // seguridad
 
-  {[
-  "codigo",
-  "campania",
-  "cp",
-  "municipio",
-  "provincia",
-  "observaciones",
-  "fecha_inicio",
-  "fecha_fin",
-].map((field) => (
-  <td key={field}>
-    <input
-      type={field === "fecha_inicio" || field === "fecha_fin" ? "datetime-local" : "text"}
-      value={
-        field === "fecha_inicio" || field === "fecha_fin"
-          ? (row as any)[field]
-            ? (row as any)[field].slice(0, 16) // Mostrar sin los segundos
-            : ""
-          : (row as any)[field] || ""
-      }
-      onChange={(e) => {
-        const rawValue = e.target.value;
-        let finalValue = rawValue;
+  // 2️⃣ Normalizamos la fecha seleccionada
+  const seleccion = new Date(fechaSeleccionada!);
+  seleccion.setHours(0, 0, 0, 0);
 
-        // Si es campo fecha, añade los segundos (:00)
-        if ((field === "fecha_inicio" || field === "fecha_fin") && rawValue.length === 16) {
-          finalValue = rawValue + ":00";
-        }
+  // 3️⃣ Parseamos inicio/fin y normalizamos horas
+  const inicio = row.fecha_inicio
+    ? new Date(completarSegundos(row.fecha_inicio))
+    : null;
+  const fin = row.fecha_fin
+    ? new Date(completarSegundos(row.fecha_fin))
+    : null;
+  if (inicio) inicio.setHours(0, 0, 0, 0);
+  if (fin)    fin.setHours(23, 59, 59, 999);
 
-        handleInputChange(
-          data.indexOf(row),
-          field as keyof Row,
-          finalValue
-        );
-      }}
-      style={{
-        padding: "5px",
-        borderRadius: "4px",
-        border: "1px solid #ccc",
-        backgroundColor: "#f9f9f9",
-        width: "100%",
-      }}
-    />
-  </td>
-))}
+  // 4️⃣ Determinamos si ha empezado / terminado
+  const haEmpezado  = inicio  ? seleccion >= inicio : false;
+  const haTerminado = fin     ? seleccion >  fin    : false;
 
+  // 5️⃣ Decidimos color de fondo (fuera de rango → blanco)
+  const displayColor: Color = (!haEmpezado || haTerminado)
+    ? "white"
+    : row.color;
 
-
-
-            </tr>
+  return (
+    <tr key={idx} style={{ backgroundColor: displayColor }}>
+      {/* Celda de botones de acción */}
+      <td style={{
+          position: "sticky",
+          left: 0,
+          backgroundColor: "#fff",
+          zIndex: 1,
+        }}>
+        <div style={actionButtonGroup}>
+          {(["orange", "black", "red", "white"] as Color[]).map((c) => (
+            <button
+              key={c}
+              onClick={() => handleColorChange(dataIndex, c)}
+              style={{
+                ...colorButtonStyle,
+                backgroundColor:
+                  c === "white" ? "#f1f1f1"
+                  : c === "black" ? "black"
+                  : c,
+                color: c === "white" ? "#000" : "#fff",
+                border: c === "black" ? "2px solid black" : "none",
+              }}
+            >
+              {c === "orange" ? "Reservado"
+               : c === "black"  ? "No usar"
+               : c === "red"    ? "Montado"
+                                : "Resetear"}
+            </button>
           ))}
-        </tbody>
-      </table>
+
+    {/* Aquí el botón de historial */}
+     <button
+      onClick={() => abrirHistorial(row.codigo)}
+      style={{
+        ...colorButtonStyle,
+        backgroundColor: "#6c757d",
+        color: "white",
+      }}
+      title="Ver historial"
+    >
+      📜
+    </button>
+  </div>
+</td>
+
+        {[
+          "codigo",
+          "campania",
+          "cp",
+          "municipio",
+          "provincia",
+          "observaciones",
+          "fecha_inicio",
+          "fecha_fin",
+        ].map((field) => (
+          <td key={field}>
+            <input
+              type={
+                field === "fecha_inicio" || field === "fecha_fin"
+                  ? "datetime-local"
+                  : "text"
+              }
+              value={
+                (row as any)[field]
+                  ? (row as any)[field].slice(0, 16)
+                  : ""
+              }
+              onChange={(e) => {
+                let val = e.target.value;
+                if (
+                  (field === "fecha_inicio" || field === "fecha_fin") &&
+                  val.length === 16
+                ) {
+                  val += ":00";
+                }
+                handleInputChange(
+                  data.indexOf(row),
+                  field as keyof Row,
+                  val
+                );
+              }}
+              style={{
+                padding: "5px",
+                borderRadius: "4px",
+                border: "1px solid #ccc",
+                backgroundColor: "#f9f9f9",
+                width: "100%",
+              }}
+            />
+          </td>
+        ))}
+
+        <td style={{ textAlign: "center" }}>
+          <button
+            onClick={() => handleDelete(row.codigo)}
+            style={{
+              padding: "6px 12px",
+              backgroundColor: "red",
+              color: "white",
+              fontWeight: "bold",
+              borderRadius: "6px",
+              border: "none",
+              cursor: "pointer",
+              marginLeft: "8px",
+            }}
+          >
+            Eliminar
+          </button>
+
+          
+        </td>
+      </tr>
+    );
+  })}
+</tbody>
+          </table>
+        </div>
+      ) : (
+        <p
+          style={{
+            fontStyle: "italic",
+            color: "#666",
+            textAlign: "center",
+            padding: "10px 0",
+          }}
+        >
+          Ninguno
+        </p>
+      )}
     </div>
-  ) : (
-    <p style={{
-  fontStyle: "italic",
-  color: "#666",
-  textAlign: "center",
-  padding: "10px 0"
-}}>
-  Ninguno
-</p>
+  );
+})}
 
-  )}
-</div>
 
-          );
-        })}
       </>
     )}
+
+    {mostrarHistorial && codigoSeleccionado && (
+  <div onClick={cerrarHistorial} style={overlayStyle}>
+    <div onClick={e => e.stopPropagation()} style={modalStyle}>
+      <h3>📜 Historial de {codigoSeleccionado}</h3>
+      <div style={{ overflowX: "auto", width: "100%", marginTop: 12 }}>
+        <table style={{ borderCollapse: "collapse", width: "max-content" }}>
+          <thead>
+            <tr>
+              <th style={cellStyle}>Campaña</th>
+              <th style={cellStyle}>CP</th>
+              <th style={cellStyle}>Municipio</th>
+              <th style={cellStyle}>Provincia</th>
+              <th style={cellStyle}>Inicio</th>
+              <th style={cellStyle}>Fin</th>
+              <th style={cellStyle}>Color</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              // 1️⃣ Trae todo el historial guardado
+              const allHistory: Row[] = JSON.parse(
+                localStorage.getItem(`historial-${codigoSeleccionado}`) || "[]"
+              );
+              // 2️⃣ Toma solo el último snapshot ANTERIOR
+              const anterior = allHistory.length > 0
+                ? allHistory[allHistory.length - 1]
+                : null;
+              // 3️⃣ Y el estado ACTUAL
+              const actual = data.find(r => r.codigo === codigoSeleccionado) || null;
+              // 4️⃣ Construye el array con ambas (si existen)
+              const rowsToShow: Row[] = [];
+              if (anterior) rowsToShow.push(anterior);
+              if (actual)   rowsToShow.push(actual);
+
+              return rowsToShow.map((row, i) => (
+                <tr key={i} style={{ backgroundColor: row.color }}>
+                  <td style={cellStyle}>{row.campania}</td>
+                  <td style={cellStyle}>{row.cp}</td>
+                  <td style={cellStyle}>{row.municipio}</td>
+                  <td style={cellStyle}>{row.provincia}</td>
+                  <td style={cellStyle}>{row.fecha_inicio?.slice(0, 10) || "–"}</td>
+                  <td style={cellStyle}>{row.fecha_fin?.slice(0, 10) || "–"}</td>
+                  <td style={cellStyle}>{row.color}</td>
+                </tr>
+              ));
+            })()}
+          </tbody>
+        </table>
+      </div>
+      <button
+        onClick={cerrarHistorial}
+        style={{
+          marginTop: 16,
+          padding: "8px 12px",
+          backgroundColor: "#007bff",
+          color: "white",
+          border: "none",
+          borderRadius: 4,
+          cursor: "pointer",
+        }}
+      >
+        Cerrar
+      </button>
+    </div>
+  </div>
+)}
+
+
     <ToastContainer position="top-right" autoClose={3000} />
   </div>
 )}
+
+
 
 
 
@@ -2488,5 +2526,5 @@ const addRowButtonStyle = { ...colorButtonStyle, backgroundColor: "#007BFF", col
 const saveButtonStyle = { ...colorButtonStyle, backgroundColor: "#28a745", color: "white" };
 const backButtonStyle = { ...colorButtonStyle, backgroundColor: "#dc3545", color: "white" };
 
-export default MobiliarioAlcadaDeGuadaira
+export default MobiliarioAlcalaDeGuadaira
 

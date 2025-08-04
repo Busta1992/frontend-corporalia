@@ -12,6 +12,10 @@ import { saveAs } from "file-saver";
 import jsPDF from 'jspdf';
 import { Line } from 'react-chartjs-2';
 import { Doughnut } from "react-chartjs-2";
+import CalendarTable from "./CalendarTable";
+
+
+
 
 
 
@@ -40,9 +44,10 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 type Color = "white" | "orange" | "black" | "red";
 
 type Row = {
-  campania: string;
+  
   
   n_flota: string;
+  campania: string;
   base: string;
   carretera: string;
   provincia: string;
@@ -75,16 +80,95 @@ const LineaA3: React.FC = () => {
   const [vista, setVista] = useState<"calendario" | "resumen" | "total">("calendario");
   const chartRef = useRef<any>(null);
   const [anioSeleccionado, setAnioSeleccionado] = useState(new Date().getFullYear());
+  const [historial, setHistorial] = useState<Row[]>([]);
+
   
+  const [isEditing, setIsEditing] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
   
 
 
+// Para los botones de acción
+const buttonLabels: Record<Color, string> = {
+  orange: "Reservado",
+  black:  "No usar",
+  red:    "Montado",
+  white:  "Resetear",      // ← aquí pones Libre
+};
+
+// Para los títulos de sección (el que dice “🔘 Resetear el 1/8/2025”)
+const sectionLabels: Record<Color, string> = {
+  orange: "Reservados",
+  black:  "No usar",
+  red:    "Montados",
+  white:  "Libres",   // ← aquí sigue siendo Resetear
+};
+
+ 
 
 
 
+const [filteredRows, setFilteredRows] = useState<Row[]>([]);
+const [fechaDesde, setFechaDesde] = useState<Date | null>(null);
+const [fechaHasta, setFechaHasta] = useState<Date | null>(null);
+const [mostrarFuturos, setMostrarFuturos] = useState(true);
+
+const [mostrarHistorial, setMostrarHistorial] = useState(false);
+const [nFlotaSeleccionado, setNFlotaSeleccionado] = useState<string | null>(null);
+
+const abrirHistorial = (nFlota: string) => {
+  setNFlotaSeleccionado(nFlota);
+  const key = `historial-${nFlota}`;
+  const h: Row[] = JSON.parse(localStorage.getItem(key) || "[]");
+  setHistorial(h);
+  setMostrarHistorial(true);
+};
 
 
-  const [fechaSeleccionada, setFechaSeleccionada] = useState<Date | null>(null);
+const cerrarHistorial = () => {
+  setMostrarHistorial(false);
+  setNFlotaSeleccionado(null);
+};
+
+
+
+const [fechaSeleccionada, setFechaSeleccionada] = useState<Date | null>(null);
+const rows = filteredRows;
+
+
+
+const historialFiltrado =
+  fechaSeleccionada && nFlotaSeleccionado
+    ? data
+        .filter(
+          (row) =>
+            row.n_flota === nFlotaSeleccionado &&
+            (row.color === "red" || row.color === "orange") &&  // opcional: sólo montados/reservados
+            row.fechaFin &&
+            new Date(row.fechaFin) < fechaSeleccionada
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.fechaInicio).getTime() -
+            new Date(a.fechaInicio).getTime()
+        )
+    : [];
+
+
+// Guarda en localStorage el estado ANTERIOR de la fila
+function logHistorial(oldRow: Row) {
+  const key = `historial-${oldRow.n_flota}`;
+  const h: Row[] = JSON.parse(localStorage.getItem(key) || "[]");
+  h.push({ ...oldRow });
+  localStorage.setItem(key, JSON.stringify(h));
+}
+
+
+
+  
+
+  
   const [filterColor, setFilterColor] = useState("Todos");
   const [filterMunicipio, setFilterMunicipio] = useState("Todos");
   
@@ -108,6 +192,82 @@ useEffect(() => {
       console.error("Error al obtener datos de la línea A3:", error);
     });
 }, []);
+
+
+
+  // 0️⃣ Ref para asegurarnos de hacer sólo un pushState
+  const hasPushedState = useRef(false);
+
+  // 1️⃣ Aviso al recargar o cerrar pestaña
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isDirty]);
+
+  // 2️⃣ Aviso al pulsar “Atrás”/“Adelante” y manejo de un solo click
+  useEffect(() => {
+    if (!isDirty) {
+      hasPushedState.current = false;
+      return;
+    }
+
+    // Solo una vez: insertamos un estado extra en el historial
+    if (!hasPushedState.current) {
+      window.history.pushState(null, "", window.location.href);
+      hasPushedState.current = true;
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      if (!isDirty) return;
+
+      const confirmed = window.confirm(
+        "Tienes cambios sin guardar. ¿Seguro que quieres salir sin guardar?"
+      );
+
+      if (!confirmed) {
+        // Usuario canceló: volvemos a empujar el mismo estado
+        window.history.pushState(null, "", window.location.href);
+      } else {
+        // Usuario confirmó: limpiamos y navegamos atrás de verdad
+        window.removeEventListener("popstate", handlePopState);
+        setIsDirty(false);
+        window.history.back();
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [isDirty]);
+
+
+const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+
+const [historyData, setHistoryData] = useState<Row[]>([]);
+
+const getHistorial = (nFlota: string): Row[] =>
+  JSON.parse(localStorage.getItem(`historial-${nFlota}`) || "[]");
+
+// ➋ Función para borrar el historial
+const clearHistorial = (nFlota: string) => {
+  localStorage.removeItem(`historial-${nFlota}`);
+  toast.info(`Historial de ${nFlota} borrado.`);
+  // Opcional: forzar recálculo del array para que la tabla se vacíe
+  setMostrarHistorial(false);
+  setTimeout(() => setMostrarHistorial(true), 0);
+};
+
+
+
 
 
 const generarResumenAnual = () => {
@@ -153,19 +313,50 @@ const generarResumenAnual = () => {
   return resumen;
 };
 
+const filtrarPorRangoDeFechas = (row: Row) => {
+  if (!fechaDesde && !fechaHasta) return true;
 
+  const inicio = row.fechaInicio ? new Date(row.fechaInicio) : null;
+  const fin = row.fechaFin ? new Date(row.fechaFin) : null;
 
-const generarTotalesMontadoLibres = () => {
-  const resumen = generarResumenAnual();
-  return {
-    Montado: resumen.Montado.reduce((a, b) => a + b, 0),
-    Libres: resumen.Libres.reduce((a, b) => a + b, 0),
-  };
+  if (!inicio || !fin) return false;
+
+  // Normalizar horas para comparación
+  inicio.setHours(0, 0, 0, 0);
+  fin.setHours(23, 59, 59, 999);
+
+  if (fechaDesde) {
+    const desde = new Date(fechaDesde);
+    desde.setHours(0, 0, 0, 0);
+    if (fin < desde) return false;
+  }
+
+  if (fechaHasta) {
+    const hasta = new Date(fechaHasta);
+    hasta.setHours(23, 59, 59, 999);
+    if (inicio > hasta) return false;
+  }
+
+  return true;
 };
+
+type ColorKey = "orange" | "black" | "red" | "white";
+
+const allColors: ColorKey[] = ["orange", "black", "red", "white"];
+
+const colorLabels: Record<ColorKey, string> = {
+  orange: "🟠 Reservados",
+  black:  "⚫ No usar",
+  red:    "🔴 Montados",
+  white:  "⚪ Libres",
+};
+
 
 const generarResumenPorAnio = (anio: number) => {
   const resumen = {
     Montado: Array(12).fill(0),
+    Reservado: Array(12).fill(0),
+    NoUsar: Array(12).fill(0),
     Libres: Array(12).fill(0),
   };
 
@@ -174,38 +365,65 @@ const generarResumenPorAnio = (anio: number) => {
     const inicio = fechaInicio ? new Date(fechaInicio) : null;
     const fin = fechaFin ? new Date(fechaFin) : null;
 
-    const fueraDeAnio =
-      (inicio && inicio.getFullYear() !== anio) &&
-      (fin && fin.getFullYear() !== anio);
+    const añoEmpieza = new Date(anio, 0, 1);
+    const añoTermina = new Date(anio, 11, 31, 23, 59, 59, 999);
 
-    if (fueraDeAnio) return;
+    
 
-    if (color === "red" && inicio?.getFullYear() === anio) {
-      resumen.Montado[inicio.getMonth()]++;
-    } else if (color === "white") {
-      if (
-        inicio &&
-        fin &&
-        !isNaN(inicio.getTime()) &&
-        !isNaN(fin.getTime())
-      ) {
-        const mesInicio =
-          inicio.getFullYear() === anio ? inicio.getMonth() : 0;
-        const mesFin = fin.getFullYear() === anio ? fin.getMonth() : 11;
+    // Caso 1: Sin fechas → libre todo el año
+    if (!inicio || !fin || isNaN(inicio.getTime()) || isNaN(fin.getTime())) {
+      for (let m = 0; m < 12; m++) resumen.Libres[m]++;
+      return;
+    }
 
-        for (let m = mesInicio; m <= mesFin; m++) {
-          resumen.Libres[m]++;
-        }
+    // Caso 2: Rango fuera del año → libre todo el año
+    if (fin < añoEmpieza || inicio > añoTermina) {
+      for (let m = 0; m < 12; m++) resumen.Libres[m]++;
+      return;
+    }
+
+    // Caso 3: Rango parcial → contar meses activos y libres
+    const mesInicio = inicio < añoEmpieza ? 0 : inicio.getMonth();
+    const mesFin = fin > añoTermina ? 11 : fin.getMonth();
+
+    for (let m = 0; m < 12; m++) {
+      if (m >= mesInicio && m <= mesFin) {
+        // Mes dentro del rango
+        if (color === "red") resumen.Montado[m]++;
+        else if (color === "orange") resumen.Reservado[m]++;
+        else if (color === "black") resumen.NoUsar[m]++;
+        else resumen.Libres[m]++;
       } else {
-        // Libres sin fechas: contarlos en todos los meses
-        for (let m = 0; m < 12; m++) {
-          resumen.Libres[m]++;
-        }
+        // Mes fuera del rango
+        resumen.Libres[m]++;
       }
     }
   });
 
   return resumen;
+};
+
+
+// Dentro del componente
+useEffect(() => {
+  const totales = generarTotalesPorEstado(anioSeleccionado);
+  console.log("Totales calculados desde useEffect:", totales);
+}, [anioSeleccionado]);
+
+
+const generarTotalesPorEstado = (anio: number) => {
+  console.log("Año recibido en generarTotalesPorEstado:", anio); // 👈 Depuración
+
+  const resumen = generarResumenPorAnio(anio);
+
+  console.log("Resumen generado:", resumen); // 👈 Verifica si contiene los arrays correctos
+
+  return {
+    Montado: resumen.Montado.reduce((a, b) => a + b, 0),
+    Reservado: resumen.Reservado.reduce((a, b) => a + b, 0),
+    NoUsar: resumen.NoUsar.reduce((a, b) => a + b, 0),
+    Libres: resumen.Libres.reduce((a, b) => a + b, 0),
+  };
 };
 
 
@@ -215,6 +433,34 @@ const generarResumenPorAnio = (anio: number) => {
 
 
 
+
+
+const containerTableStyle: React.CSSProperties = {
+  overflowX: 'auto',
+  width: '100%',
+};
+
+const tableStyle: React.CSSProperties = {
+  borderCollapse: 'collapse',
+  width: 'max-content', // deja que crezca hasta donde necesite
+};
+
+const headerCellStyle: React.CSSProperties = {
+  border: '1px solid #ccc',
+  padding: '8px',
+  background: '#f5f5f5',
+  fontWeight: 'bold',
+  whiteSpace: 'nowrap',
+};
+
+const cellStyle: React.CSSProperties = {
+  border: '1px solid #ccc',
+  padding: '8px',
+  whiteSpace: 'pre-wrap',   // permite saltos de línea
+  wordBreak: 'break-word',   // quiebra palabras muy largas
+  verticalAlign: 'top',      // alinea el contenido arriba
+  maxWidth: 200,             // ancho máximo opcional
+};
 
 
   
@@ -225,17 +471,62 @@ const [filterZona, setFilterZona] = useState("Todos");
 const [filterModelo, setFilterModelo] = useState("Todos");
 const [filterTrasera, setFilterTrasera] = useState("Todos");
 const [filterCampania, setFilterCampania] = useState("Todos");
+const [filters, setFilters] = useState<{ [key: string]: string }>({});
+
 
 // ✅ Ya puedes usarlo aquí abajo sin error
-const dataFiltrada = data.filter((row) =>
-  (filterLinea === "Todos" || row.lineas === filterLinea) &&
-  (filterOperador === "Todos" || row.operador === filterOperador) &&
-  (filterZona === "Todos" || row.zona === filterZona) &&
-  (filterProvincia === "Todos" || row.provincia === filterProvincia) &&
-  (filterModelo === "Todos" || row.modelo === filterModelo) &&
-  (filterTrasera === "Todos" || row.trasera === filterTrasera) &&
-  (filterCampania === "Todos" || row.campania === filterCampania)
-);
+const dataFiltrada = isEditing
+  ? data
+  : data.filter((row) => {
+      const coincideLinea = filterLinea === "Todos" || row.lineas === filterLinea;
+      const coincideOperador = filterOperador === "Todos" || row.operador === filterOperador;
+      const coincideZona = filterZona === "Todos" || row.zona === filterZona;
+      const coincideProvincia = filterProvincia === "Todos" || row.provincia === filterProvincia;
+      const coincideModelo = filterModelo === "Todos" || row.modelo === filterModelo;
+      const coincideTrasera = filterTrasera === "Todos" || row.trasera === filterTrasera;
+      const coincideCampania = filterCampania === "Todos" || row.campania === filterCampania;
+      const coincideEstado = filterColor === "Todos" || row.color === filterColor;
+
+      const fechaInicioValida = row.fechaInicio ? new Date(row.fechaInicio) : null;
+      const fechaFinValida = row.fechaFin ? new Date(row.fechaFin) : null;
+      const filtroDesdeValido = fechaDesde ? new Date(fechaDesde) : null;
+const filtroHastaValido = fechaHasta ? new Date(fechaHasta) : null;
+
+if (fechaInicioValida) fechaInicioValida.setHours(0, 0, 0, 0);
+if (fechaFinValida) fechaFinValida.setHours(0, 0, 0, 0);
+if (filtroDesdeValido) filtroDesdeValido.setHours(0, 0, 0, 0);
+if (filtroHastaValido) filtroHastaValido.setHours(0, 0, 0, 0);
+
+let coincideFechas = true;
+
+if (fechaDesde || fechaHasta) {
+  if (!fechaInicioValida || !fechaFinValida) {
+    coincideFechas = false;
+  } else {
+    if (filtroDesdeValido && fechaFinValida < filtroDesdeValido) coincideFechas = false;
+    if (filtroHastaValido && fechaInicioValida > filtroHastaValido) coincideFechas = false;
+  }
+}
+
+if (!coincideFechas) {
+  console.log("❌ Descartado por fecha:", row.n_flota, row.fechaInicio, row.fechaFin);
+}
+
+
+      return (
+        coincideLinea &&
+        coincideOperador &&
+        coincideZona &&
+        coincideProvincia &&
+        coincideModelo &&
+        coincideTrasera &&
+        coincideCampania &&
+        coincideEstado &&
+        coincideFechas
+      );
+    });
+
+
 
 const modelosDisponiblesRaw = [...new Set(
   data
@@ -435,19 +726,7 @@ const exportarMesAExcel = (data: Row[], mesSeleccionado: string) => {
   const primerDia = new Date(año, mes, 1);
   const ultimoDia = new Date(año, mes + 1, 0);
 
-  const datosFiltrados = data.filter((row) => {
-    if (row.color === "white") return false;
-    const inicio = row.fechaInicio ? new Date(row.fechaInicio) : null;
-    const fin = row.fechaFin ? new Date(row.fechaFin) : null;
-    return (
-      inicio &&
-      fin &&
-      !isNaN(inicio.getTime()) &&
-      !isNaN(fin.getTime()) &&
-      fin >= primerDia &&
-      inicio <= ultimoDia
-    );
-  });
+  
   
 
   const mapearDatos = (filas: Row[]) =>
@@ -466,6 +745,21 @@ const exportarMesAExcel = (data: Row[], mesSeleccionado: string) => {
       "Fecha Fin": row.fechaFin ? new Date(row.fechaFin).toLocaleDateString() : "",
       Estado: estadoDesdeColor(row.color),
     }));
+
+   const datosFiltrados = data.filter((row) => {
+  if (row.color === "white") return false;
+  const inicio = row.fechaInicio ? new Date(row.fechaInicio) : null;
+  const fin = row.fechaFin ? new Date(row.fechaFin) : null;
+  return (
+    inicio &&
+    fin &&
+    !isNaN(inicio.getTime()) &&
+    !isNaN(fin.getTime()) &&
+    fin >= primerDia &&
+    inicio <= ultimoDia
+  );
+});
+
 
   const hojas = {
     General: datosFiltrados,
@@ -592,6 +886,7 @@ startY += 4;
   row.lineas,
   row.zona,
   row.modelo,
+  row.operador,
   row.campania || '',
   formatDate(row.fechaInicio),
   formatDate(row.fechaFin),
@@ -729,31 +1024,25 @@ useEffect(() => {
 
   const fetchData = async () => {
     try {
-      const response = await axios.get(`${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/carreteras/carretera/A3`);
+      const response = await axios.get(
+        `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/carreteras/carretera/A3`
+      );
 
-      const savedColors = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
+      // 1️⃣ Leemos TODO el mapa de colores guardados
+      const savedColors: Record<string, Color> =
+        JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
 
+      // 2️⃣ Mapeamos la data de la API, aplicando primero los colores persistidos
       const formattedData: Row[] = response.data.map((row: any) => {
-        let color: Color = "white";
+        // Color que viene de la API (si es válido)
+        const apiColor = ["white", "orange", "black", "red"].includes(row.color)
+          ? (row.color as Color)
+          : ("white" as Color);
 
-        if (["white", "orange", "black", "red"].includes(row.color)) {
-          color = row.color;
-        } else if (savedColors[row.n_flota]) {
-          color = savedColors[row.n_flota];
-        }
+        // Usamos el color persistido si existe, sino el de la API
+        const color: Color = savedColors[row.n_flota] ?? apiColor;
 
-        // Verificar caducidad
-        const fechaFin = row.fechaFin ? new Date(row.fechaFin) : null;
-        if (
-          fechaFin &&
-          !isNaN(fechaFin.getTime()) &&
-          fechaFin < hoy &&
-          (color === "red" || color === "orange" || color === "black")
-        ) {
-          // Eliminar color de localStorage
-          localStorage.removeItem(`color-${row.n_flota}`);
-          color = "white";
-        }
+        
 
         return {
           campania: row.campania || "",
@@ -786,7 +1075,7 @@ useEffect(() => {
       setData(formattedData);
       setFechaSeleccionada(hoy); // Seleccionar hoy por defecto
 
-      // Mostrar toasts para campañas caducadas solo una vez
+      // 3️⃣ Mostramos toasts para caducados, pero NO reseteamos color
       formattedData.forEach((row) => {
         const fin = row.fechaFin ? new Date(row.fechaFin) : null;
         if (
@@ -801,12 +1090,13 @@ useEffect(() => {
         }
       });
     } catch (err) {
-      toast.error("Error al cargar los datos de Málaga.");
+      toast.error("Error al cargar los datos de A3.");
     }
   };
 
   fetchData();
 }, []);
+
 
 
   useEffect(() => {
@@ -830,6 +1120,18 @@ useEffect(() => {
   });
 }, [fechaSeleccionada, data]);
 
+useEffect(() => {
+  if (data && data.length > 0) {
+    const totales = generarTotalesPorEstado(anioSeleccionado);
+    console.log("✅ Totales calculados:", totales);
+  } else {
+    console.log("⚠️ Datos aún no disponibles para el resumen.");
+  }
+}, [anioSeleccionado, data]);
+
+
+
+
 
 
   const normalizarFecha = (f: Date | null) => {
@@ -839,7 +1141,47 @@ useEffect(() => {
   return fecha;
 };
 
-  
+useEffect(() => {
+  if (!data || data.length === 0) {
+    setFilteredRows([]);
+    return;
+  }
+
+  const desde = fechaDesde ? new Date(fechaDesde) : null;
+  const hasta = fechaHasta ? new Date(fechaHasta) : null;
+
+  if (desde) desde.setHours(0, 0, 0, 0);
+  if (hasta) hasta.setHours(23, 59, 59, 999);
+
+  const filtrados = data.filter((row) => {
+    if (!row.fechaInicio || !row.fechaFin) return false;
+
+    const inicio = new Date(completarSegundos(row.fechaInicio));
+    const fin = new Date(completarSegundos(row.fechaFin));
+
+    inicio.setHours(0, 0, 0, 0);
+    fin.setHours(23, 59, 59, 999);
+
+    // ✅ Prioridad: primero rango
+    if (desde || hasta) {
+      if (desde && fin < desde) return false;
+      if (hasta && inicio > hasta) return false;
+    }
+
+    // ✅ Luego por día seleccionado
+    if (fechaSeleccionada) {
+      const seleccion = new Date(fechaSeleccionada);
+      seleccion.setHours(0, 0, 0, 0);
+      if (seleccion < inicio || seleccion > fin) return false;
+    }
+
+    return true;
+  });
+
+  setFilteredRows(filtrados);
+}, [fechaSeleccionada, fechaDesde, fechaHasta, data]);
+
+ 
   
   
 
@@ -928,16 +1270,23 @@ const handleSave = async () => {
     const filasModificadas = data
       .filter((row) =>
         row.n_flota &&
-        rowHasChanges(originalData.find((r) => r.n_flota === row.n_flota) || filaVacia, row)
+        rowHasChanges(
+          originalData.find((r) => r.n_flota === row.n_flota) || filaVacia,
+          row
+        )
       )
       .map((row) => {
-        const fechaInicio = row.fechaInicio ? completarSegundos(row.fechaInicio) : null;
-        const fechaFin = row.fechaFin ? completarSegundos(row.fechaFin) : null;
+        const fechaInicio = row.fechaInicio
+          ? completarSegundos(row.fechaInicio)
+          : null;
+        const fechaFin = row.fechaFin
+          ? completarSegundos(row.fechaFin)
+          : null;
 
         const formato = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
         if (
           (fechaInicio && !formato.test(fechaInicio)) ||
-          (fechaFin && !formato.test(fechaFin))
+          (fechaFin    && !formato.test(fechaFin))
         ) {
           toast.warn(`⚠️ Fecha inválida en ${row.n_flota}`);
           return null;
@@ -963,23 +1312,34 @@ const handleSave = async () => {
     );
 
     toast.success("✅ Cambios guardados correctamente.");
+    setIsDirty(false);  // ← Aquí limpias el flag
   } catch (error) {
     console.error("⛔ Error al guardar:", error);
     toast.error("Error al guardar los datos.");
   }
 };
 
+
 const handleReset = (index: number) => {
-  setData((prevData) => {
-    const newData = [...prevData];
-    const n_flota = newData[index].n_flota;
+  setData(prev => {
+    const newData = [...prev];
+    const prevRow = newData[index];
+    const n_flota = prevRow.n_flota;
 
-    // 🔴 Elimina el color guardado del localStorage
-    localStorage.removeItem(`color-${n_flota}`);
+    // 1. log del estado anterior
+    if (prevRow.color !== "white") {
+      logHistorial(prevRow);
+    }
 
-    // 🔄 Resetea visualmente y funcionalmente la fila
+    // 2. borramos el color persistido
+    const saved: Record<string, Color> =
+      JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
+    delete saved[n_flota];
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(saved));
+
+    // 3. reseteamos la fila a blanco + limpiamos fechas y textos
     newData[index] = {
-      ...newData[index],
+      ...prevRow,
       fechaInicio: "",
       fechaFin: "",
       campania: "",
@@ -1000,7 +1360,7 @@ const handleReset = (index: number) => {
     ...prev,
     {
       n_flota: "", 
-      carretera: "3",
+      carretera: "A3",
       provincia: "Madrid",
       zona: "",
       operador: "",
@@ -1029,15 +1389,15 @@ const handleReset = (index: number) => {
 };
 
 
-  const handleInputChange = (index: number, field: keyof Row, value: string) => {
-    setData((prevData) => {
-      const newData = [...prevData];
-      newData[index] = { ...newData[index], [field]: value };
-      console.log("➡️ Editando:", newData[index]); // 👈 AÑADE ESTO
-      return newData;
-    });
-  };
-
+ const handleInputChange = (index: number, field: keyof Row, value: string) => {
+  setIsDirty(true);               // ← marcamos que hay cambios sin guardar
+  setData((prevData) => {
+    const newData = [...prevData];
+    newData[index] = { ...newData[index], [field]: value };
+    console.log("➡️ Editando:", newData[index]);
+    return newData;
+  });
+};
   const theadStyle: React.CSSProperties = {
     position: "sticky",
     top: 0,
@@ -1067,182 +1427,64 @@ const handleReset = (index: number) => {
       setError("Error al eliminar los datos.");
     }
   };
+
   
   
-  type CalendarTableProps = {
-  rows: Row[];
-  filters: { [key: string]: string };
-  setFilters: React.Dispatch<React.SetStateAction<{ [key: string]: string }>>;
-  handleInputChange: (index: number, field: keyof Row, value: string) => void;
-};
+  
+  
+    
+  
+  
 
-const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters, handleInputChange }) => {
-  const campos = [
-    "n_flota", "carretera", "provincia", "zona", "operador", "lineas", "matricula", "base", "modelo", "plantilla", "extra", "trasera",
-    "izq_delantera", "izq_plus", "izq_trasera", "der_delantera", "der_plus", "der_trasera", "campania", "info_plus", "observaciones",
-    "fechaInicio", "fechaFin"
-  ];
+ 
+ 
 
-  const theadStyle: React.CSSProperties = {
-    position: "sticky",
-    top: 0,
-    backgroundColor: "#ddd",
-    zIndex: 2,
-    height: "50px",
-  };
 
-  const filteredRows = rows.filter((row) => {
-    return Object.entries(filters).every(([key, value]) => {
-      if (value === "Todos") return true;
-      const rowValue = (row as any)[key];
-      return rowValue?.toString().trim().toLowerCase() === value.toLowerCase();
-    });
-  });
+  
 
-  const resetFilters = () => {
-    const cleanFilters: { [key: string]: string } = {};
-    campos.forEach((campo) => {
-      cleanFilters[campo] = "Todos";
-    });
-    setFilters(cleanFilters);
-  };
-
-  return (
-    <div style={{
-      overflowX: "auto",
-      overflowY: "auto",
-      width: "100%",
-      marginBottom: 30,
-      maxHeight: 300,
-      border: "1px solid #ccc",
-      borderRadius: "6px"
-    }}>
-      <div style={{ marginBottom: 10 }}>
-        <button onClick={resetFilters} style={{
-          padding: "6px 10px",
-          borderRadius: "5px",
-          backgroundColor: "#007bff",
-          color: "white",
-          fontWeight: "bold",
-          border: "none",
-          cursor: "pointer"
-        }}>
-          🔄 Limpiar filtros
-        </button>
-      </div>
-
-      <table style={{ width: "max-content", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th style={theadStyle}>Acciones</th>
-            {campos.map((label, i) => (
-              <th key={i} style={theadStyle}>{label}</th>
-            ))}
-          </tr>
-
-          <tr>
-            <td></td>
-            {campos.map((field, i) => {
-              const values = [...new Set(rows.map((r) => r[field as keyof Row]))]
-                .filter(Boolean)
-                .sort((a, b) => a?.toString().localeCompare(b?.toString()));
-
-              return (
-                <td key={i}>
-                  <select
-                    value={filters[field] || "Todos"}
-                    onChange={(e) =>
-                      setFilters((prev) => ({
-                        ...prev,
-                        [field]: e.target.value,
-                      }))
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "4px",
-                      backgroundColor: "#f0f0f0",
-                      fontSize: "14px",
-                    }}
-                  >
-                    <option value="Todos">Todos</option>
-                    {values.map((v) => (
-                      <option key={v} value={v}>{v}</option>
-                    ))}
-                  </select>
-                </td>
-              );
-            })}
-          </tr>
-        </thead>
-
-        <tbody>
-          {filteredRows.map((row, index) => (
-            <tr key={index} style={{ backgroundColor: row.color }}>
-              <td>
-                {/* Aquí puedes insertar tus botones de acción personalizados */}
-              </td>
-              {campos.map((field) => (
-                <td key={field}>
-                  <input
-                    type={field === "fechaInicio" || field === "fechaFin" ? "datetime-local" : "text"}
-                    value={(row as any)[field] || ""}
-                    onChange={(e) =>
-                      handleInputChange(index, field as keyof Row, e.target.value)
-                    }
-                    style={{
-                      padding: "5px",
-                      borderRadius: "4px",
-                      border: "1px solid #ccc",
-                      backgroundColor: "#f9f9f9",
-                      width: "100%",
-                    }}
-                  />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-};
   
   let toastMostrado = false;
 
-  const handleColorChange = (index: number, color: Color) => {
-  setData((prevData) => {
-    const newData = [...prevData];
-    const row = newData[index];
+ 
+ const handleColorChange = (nFlota: string, color: Color) => {
+  const prevRow = data.find(r => r.n_flota === nFlota);
+  if (!prevRow) return;
 
-    // ⚠️ Validar que haya fechas antes de aplicar un color que no sea blanco
-    if (
-      color !== "white" &&
-      (!row.fechaInicio || !row.fechaFin)
-    ) {
-      toast.warning("⚠️ Debes establecer fecha de inicio y fin antes de aplicar una accion");
-      return prevData; // 🚫 Bloqueamos el cambio
-    }
+  // validación de fechas
+  if (color !== "white" && (!prevRow.fechaInicio || !prevRow.fechaFin)) {
+    toast.warning("⚠️ Debes establecer fecha de inicio y fin antes de aplicar una acción");
+    return;
+  }
 
-    // ✅ Si es color blanco o fechas válidas, permitir el cambio
-    if (color === "white") {
-      newData[index] = {
-        ...row,
-        color,
-        fechaInicio: "",
-        fechaFin: "",
-        campania: "",
-        observaciones: "",
-      };
-    } else {
-      newData[index] = {
-        ...row,
-        color,
-      };
-    }
+  // guardamos el estado anterior (<prevRow.color>, fechas, etc.)
+  if (prevRow.color !== "white") {
+    logHistorial(prevRow);
+  }
 
-    return newData;
-  });
+  // construimos el nuevo estado y lo persistimos
+  const updatedRow: Row = {
+    ...prevRow,
+    color,
+    ...(color === "white"
+      ? { fechaInicio: "", fechaFin: "", campania: "", observaciones: "" }
+      : {})
+  };
+
+  // persistimos en LOCAL_STORAGE_KEY
+  const saved: Record<string, Color> = JSON.parse(
+    localStorage.getItem(LOCAL_STORAGE_KEY) || "{}"
+  );
+  if (color === "white") delete saved[nFlota];
+  else saved[nFlota] = color;
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(saved));
+
+  // actualizamos el estado React
+  setData(prev => prev.map(r =>
+    r.n_flota === nFlota ? updatedRow : r
+  ));
 };
+
+
 
 
   const parseDate = (input: string | null | undefined): Date | null => {
@@ -1261,44 +1503,332 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
 
   if (!inicio || !fin) return false;
 
-  // Normalizamos todas las fechas a medianoche
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   inicio.setHours(0, 0, 0, 0);
   fin.setHours(0, 0, 0, 0);
 
-  return inicio <= d && d <= fin;
+  const color = localStorage.getItem(`color-${row.n_flota}`) || row.color || 'white';
+
+  return (
+    color !== 'white' &&
+    d >= inicio &&
+    d <= fin
+  );
 };
 
 
-  const filteredData = data.filter(
-    (row) =>
-      (filterColor === "Todos" || row.color === filterColor) &&
-      (filterMunicipio === "Todos" || row.provincia === filterMunicipio)
- 
-      
-  );
+
+ const filteredData = data.filter(row => {
+  const fechaInicioRow = row.fechaInicio ? new Date(row.fechaInicio) : null;
+  const fechaFinRow = row.fechaFin ? new Date(row.fechaFin) : null;
+
+  if (fechaDesde && fechaHasta && fechaInicioRow && fechaFinRow) {
+    fechaInicioRow.setHours(0, 0, 0, 0);
+    fechaFinRow.setHours(23, 59, 59, 999);
+
+    const desde = new Date(fechaDesde);
+    const hasta = new Date(fechaHasta);
+    desde.setHours(0, 0, 0, 0);
+    hasta.setHours(23, 59, 59, 999);
+
+    // Mostrar todo lo que no se excluya explícitamente
+    const estaFueraDelRango = fechaFinRow < desde || fechaInicioRow > hasta;
+
+    return !estaFueraDelRango;
+  }
+
+  return true; // Si no hay filtros activos o no hay fechas, se muestra
+});
+
+
+
+
+
+
 
   const disponibles = data.filter(
-    (row) => fechaSeleccionada && isInRange(row, fechaSeleccionada) && row.color === "white"
-  );
+  (row) =>
+    fechaSeleccionada &&
+    isInRange(row, fechaSeleccionada) &&
+    row.color === "white" &&
+    filtrarPorRangoDeFechas(row)
+);
 
-  const ocupados = data.filter(
-    (row) => fechaSeleccionada && isInRange(row, fechaSeleccionada) && row.color !== "white"
-  );
+const ocupados = data.filter(
+  (row) =>
+    fechaSeleccionada &&
+    isInRange(row, fechaSeleccionada) &&
+    row.color !== "white" &&
+    filtrarPorRangoDeFechas(row)
+);
 
-  const sinFecha = data.filter((row) => !row.fechaInicio || !row.fechaFin);
+const sinFecha = data.filter(
+  (row) =>
+    (!row.fechaInicio || !row.fechaFin)
+ &&
+    filtrarPorRangoDeFechas(row) // opcional: solo si también quieres filtrar sin fechas
+);
 
-  const conteo = {
-    nousar: data.filter((r) => r.color === "black").length,
-    reservado: data.filter((r) => r.color === "orange").length,
-    montado: data.filter((r) => r.color === "red").length,
-    libres: data.filter((r) => r.color === "white").length,
-    total: data.length,
-  };
+const conteo = {
+  nousar: data.filter((r) => r.color === "black" && filtrarPorRangoDeFechas(r)).length,
+  reservado: data.filter((r) => r.color === "orange" && filtrarPorRangoDeFechas(r)).length,
+  montado: data.filter((r) => r.color === "red" && filtrarPorRangoDeFechas(r)).length,
+  libres: data.filter((r) => r.color === "white" && filtrarPorRangoDeFechas(r)).length,
+  total: data.filter(filtrarPorRangoDeFechas).length,
+};
+
+// 🔽 Clasificación por estado para la fecha seleccionada
+const registrosMontados = data.filter((row) => {
+  if (row.color !== "red" || !row.fechaInicio || !row.fechaFin || !fechaSeleccionada) return false;
+  const inicio = new Date(completarSegundos(row.fechaInicio));
+  const fin = new Date(completarSegundos(row.fechaFin));
+  const seleccion = new Date(fechaSeleccionada);
+  return seleccion >= inicio && seleccion <= fin;
+});
+
+const registrosReservados = data.filter((row) => {
+  if (row.color !== "orange" || !row.fechaInicio || !row.fechaFin || !fechaSeleccionada) return false;
+  const inicio = new Date(completarSegundos(row.fechaInicio));
+  const fin = new Date(completarSegundos(row.fechaFin));
+  const seleccion = new Date(fechaSeleccionada);
+  return seleccion >= inicio && seleccion <= fin;
+});
+
+const registrosNoUsar = data.filter((row) => {
+  if (row.color !== "black" || !row.fechaInicio || !row.fechaFin || !fechaSeleccionada) return false;
+  const inicio = new Date(completarSegundos(row.fechaInicio));
+  const fin = new Date(completarSegundos(row.fechaFin));
+  const seleccion = new Date(fechaSeleccionada);
+  return seleccion >= inicio && seleccion <= fin;
+});
+
+// ✅ LIBRES = blancos o cualquier color fuera de fechas
+const registrosLibres = data.filter((row) => {
+  if (!fechaSeleccionada) return false;
+
+  const inicio = row.fechaInicio ? new Date(completarSegundos(row.fechaInicio)) : null;
+  const fin = row.fechaFin ? new Date(completarSegundos(row.fechaFin)) : null;
+  const seleccion = new Date(fechaSeleccionada);
+
+  if (inicio) inicio.setHours(0, 0, 0, 0);
+  if (fin) fin.setHours(23, 59, 59, 999);
+  seleccion.setHours(12, 0, 0, 0);
+
+  const estaDentro =
+    inicio && fin
+      ? seleccion >= inicio && seleccion <= fin
+      : inicio
+      ? seleccion >= inicio
+      : fin
+      ? seleccion <= fin
+      : false;
+
+  const color = localStorage.getItem(`color-${row.n_flota}`) || row.color || "white";
+  const esLibre = color === "white" || !estaDentro;
+
+  return esLibre;
+});
+
+
+
+
+
+  
+
+const cell: React.CSSProperties = {
+  border: "1px solid #ccc",
+  padding: "8px",
+  fontSize: "1.1rem",  // antes 0.9em
+};
+
+const headerCell: React.CSSProperties = {
+  border: "1px solid #ccc",
+  padding: "8px",
+  background: "#f5f5f5",
+  fontWeight: "bold",
+  fontSize: "1.2rem",  // un pelín más grande para el header
+  textAlign: "left" as const,
+};
+
+
 
   return (
+
+    
   <div style={containerStyle}>
+
+    {/* ------------------------------------------------
+   Modal de Historial con scroll y celdas flexibles
+------------------------------------------------ */}
+{mostrarHistorial && nFlotaSeleccionado && (
+  <div
+    onClick={cerrarHistorial}
+    style={{
+      position: "fixed",
+      top: 0, left: 0,
+      width: "100vw", height: "100vh",
+      background: "rgba(0,0,0,0.5)",
+      display: "flex", justifyContent: "center", alignItems: "center",
+      zIndex: 9999,
+    }}
+  >
+    <div
+      onClick={e => e.stopPropagation()}
+      style={{
+        background: "#fff",
+        padding: 20,
+        borderRadius: 8,
+        maxWidth: "90%",
+        maxHeight: "80%",
+        overflow: "auto",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+      }}
+    >
+      <h3 style={{ marginBottom: 12 }}>📜 Historial de {nFlotaSeleccionado}</h3>
+
+      {/* Contenedor con scroll horizontal */}
+      <div style={{ overflowX: "auto", width: "100%" }}>
+        <table style={{ borderCollapse: "collapse", width: "max-content" }}>
+          <thead>
+            <tr>
+              {/* Pon aquí todas tus cabeceras */}
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Campaña</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Carretera</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Provincia</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Zona</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Operador</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Líneas</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Matrícula</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Base</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Modelo</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Plantilla</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Extra</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Trasera</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Izq Delantera</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Izq Plus</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Izq Trasera</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Der Delantera</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Der Plus</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Der Trasera</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Info Plus</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Observaciones</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Inicio</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Fin</th>
+              <th style={{ border: "1px solid #ccc", padding: 8, background: "#f5f5f5", whiteSpace: "nowrap" }}>Color</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              const allHistory: Row[] = JSON.parse(localStorage.getItem(`historial-${nFlotaSeleccionado}`) || "[]");
+              const anterior = allHistory.length > 0 ? allHistory[allHistory.length - 1] : null;
+              const actual   = data.find(r => r.n_flota === nFlotaSeleccionado);
+              const rowsToShow = [anterior, actual].filter((r): r is Row => !!r);
+
+              return rowsToShow.map((row, idx) => (
+                <tr key={idx} style={{ backgroundColor: row.color }}>
+                  {/* Campaña editable solo en la fila actual (idx===1) */}
+                  <td style={{
+                    border: "1px solid #ccc",
+                    padding: 8,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    verticalAlign: "top",
+                    minWidth: 120
+                  }}>
+                    <input
+                      type="text"
+                      value={row.campania}
+                      readOnly={idx===0}
+                      onChange={e => {
+                        if (idx === 1) {
+                          const i = data.findIndex(r => r.n_flota === row.n_flota);
+                          if (i !== -1) handleInputChange(i, "campania", e.target.value);
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        border: idx===0 ? "none" : "1px solid #ccc",
+                        backgroundColor: idx===0 ? "transparent" : "#f9f9f9",
+                        padding: 5,
+                      }}
+                    />
+                  </td>
+
+                  {/* Los demás campos de solo lectura */}
+                  {[
+                    "carretera","provincia","zona","operador","lineas","matricula","base",
+                    "modelo","plantilla","extra","trasera","izq_delantera","izq_plus",
+                    "izq_trasera","der_delantera","der_plus","der_trasera","info_plus","observaciones"
+                  ].map(field => (
+                    <td key={field} style={{
+                      border: "1px solid #ccc",
+                      padding: 8,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      verticalAlign: "top",
+                      minWidth: 100
+                    }}>
+                      { (row as any)[field] }
+                    </td>
+                  ))}
+
+                  {/* Inicio */}
+                  <td style={{
+                    border: "1px solid #ccc",
+                    padding: 8,
+                    whiteSpace: "nowrap",
+                    minWidth: 120
+                  }}>
+                    {row.fechaInicio
+                      ? new Date(row.fechaInicio).toLocaleDateString("es-ES")
+                      : ""}
+                  </td>
+
+                   {/* Fin */}
+                  <td style={{
+                    border: "1px solid #ccc",
+                    padding: 8,
+                    whiteSpace: "nowrap",
+                    minWidth: 120
+                  }}>
+                    {row.fechaFin
+                      ? new Date(row.fechaFin).toLocaleDateString("es-ES")
+                      : ""}
+                  </td>
+
+                  {/* Color */}
+                  <td style={{
+                    border: "1px solid #ccc",
+                    padding: 8,
+                    whiteSpace: "nowrap",
+                    minWidth: 80
+                  }}>
+                    {row.color}
+                  </td>
+                </tr>
+              ));
+            })()}
+          </tbody>
+        </table>
+      </div>
+
+      <button
+        onClick={cerrarHistorial}
+        style={{
+          marginTop: 16, padding: "8px 12px",
+          backgroundColor: "#007bff", color: "white",
+          border: "none", borderRadius: 4, cursor: "pointer"
+        }}
+      >
+        Cerrar
+      </button>
+    </div>
+  </div>
+)}
+
+
+
     <style>
       {`
        body, button, input, select, h1, h2, h3, h4, h5, h6, table, td, th {
@@ -1327,24 +1857,30 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
 >
   {/* Volver Atrás */}
   <button
-    onClick={() => window.history.back()}
-    style={{
-      padding: "10px 20px",
-      borderRadius: "10px",
-      background: "linear-gradient(45deg, #ff4d4d, #d11a2a)",
-      color: "white",
-      fontWeight: "bold",
-      fontSize: "15px",
-      border: "none",
-      cursor: "pointer",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-      transition: "all 0.2s ease-in-out",
-    }}
-    onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-    onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
-  >
-    🔙 Volver Atrás
-  </button>
+  onClick={() => {
+    if (isDirty && !window.confirm("Tienes cambios sin guardar. ¿Seguro que quieres salir sin guardar?")) {
+      return;
+    }
+    window.history.back();
+  }}
+  style={{
+    padding: "10px 20px",
+    borderRadius: "10px",
+    background: "linear-gradient(45deg, #ff4d4d, #d11a2a)",
+    color: "white",
+    fontWeight: "bold",
+    fontSize: "15px",
+    border: "none",
+    cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+    transition: "all 0.2s ease-in-out",
+  }}
+  onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
+  onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
+>
+  🔙 Volver Atrás
+</button>
+
 
   {/* Guardar Cambios */}
   <button
@@ -1459,6 +1995,13 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
           fontWeight: "bold",
         }}
       />
+
+      
+
+      
+
+
+
     </div>
 
     {/* Exportar a PDF */}
@@ -2072,13 +2615,42 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
     
     tileContent={({ date, view }) => {
       if (view === "month") {
-        const colores: Color[] = [];
+       const colores: Color[] = [];
 
-        data.forEach((row) => {
-          if (isInRange(row, date) && !colores.includes(row.color)) {
-            colores.push(row.color);
-          }
-        });
+data.forEach((row) => {
+  const color = localStorage.getItem(`color-${row.n_flota}`) || row.color || "white";
+  const inicio = row.fechaInicio ? new Date(row.fechaInicio) : null;
+  const fin = row.fechaFin ? new Date(row.fechaFin) : null;
+
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  if (inicio) inicio.setHours(0, 0, 0, 0);
+  if (fin) fin.setHours(0, 0, 0, 0);
+
+  const estaDentro =
+    inicio && fin
+      ? d >= inicio && d <= fin
+      : inicio
+      ? d >= inicio
+      : fin
+      ? d <= fin
+      : false;
+
+  const esLibre = color === "white" || !estaDentro;
+  const colorFinal: Color = esLibre ? "white" : (color as Color);
+
+  // 🔍 AÑADE ESTA LÍNEA AQUÍ:
+  console.log(`N_FLOTA ${row.n_flota} -> Color: ${color} | Dentro: ${estaDentro} | esLibre: ${esLibre} | FINAL: ${colorFinal}`);
+
+  if (!colores.includes(colorFinal)) {
+    colores.push(colorFinal);
+  }
+});
+
+
+
+
+
 
         return (
            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "-4px" }}>
@@ -2101,6 +2673,8 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
           </div>
         );
       }
+
+        
       return null;
     }}
   />
@@ -2164,6 +2738,8 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
           white: "Libres",
         }[color];
 
+        
+
         return (
           <span key={color} style={{ marginRight: "15px" }}>
             {icono} {label}: {count}
@@ -2197,7 +2773,6 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
     marginBottom: "10px",
   }}
 >
-  {/* Este es un patrón reutilizable */}
   {[
   { label: "Provincia", value: filterProvincia, setter: setFilterProvincia, options: provinciasDisponibles },
   { label: "Modelo", value: filterModelo, setter: setFilterModelo, options: modelosDisponibles },
@@ -2220,290 +2795,339 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
       ))}
     </select>
   </div>
+
+  
 ))}
 
-
-  {/* Botón Limpiar */}
-  <div style={{ alignSelf: "flex-end" }}>
-    <button
-      onClick={() => {
-        setFilterLinea("Todos");
-        setFilterOperador("Todos");
-        setFilterZona("Todos");
-        setFilterProvincia("Todos");
-        setFilterModelo("Todos");
-        setFilterTrasera("Todos");
-        setFilterCampania("Todos");
-      }}
-      style={{
-        padding: "10px 16px",
-        borderRadius: "6px",
-        backgroundColor: "#007bff",
-        color: "white",
-        fontWeight: "bold",
-        border: "none",
-        cursor: "pointer",
-      }}
-    >
-      🔄 Limpiar filtros
-    </button>
-  </div>
 </div>
 
 
 
 
-       {["orange", "black", "red", "white"].map((color) => {
-  const colorLabels: { [key in Color]: string } = {
-    orange: "🟠 Reservados",
-    black: "⚫ No usar",
-    red: "🔴 Montados",
-    white: "⚪ Libres",
-  };
+{/* Filtro por fechas */}
+{/*
+<div style={{ minWidth: 160 }}>
+  <label style={{ fontWeight: "bold", display: "block", marginBottom: 4 }}>Fecha desde</label>
+  <input
+    type="date"
+    value={fechaDesde ? fechaDesde.toISOString().split("T")[0] : ""}
+    onChange={(e) => {
+      const value = e.target.value;
+      setFechaDesde(value ? new Date(value) : null);
+    }}
+    style={selectStyle}
+  />
+</div>
 
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
+<div style={{ minWidth: 160 }}>
+  <label style={{ fontWeight: "bold", display: "block", marginBottom: 4 }}>Fecha hasta</label>
+  <input
+    type="date"
+    value={fechaHasta ? fechaHasta.toISOString().split("T")[0] : ""}
+    onChange={(e) => {
+      const value = e.target.value;
+      setFechaHasta(value ? new Date(value) : null);
+    }}
+    style={selectStyle}
+  />
+</div>
+*/}
 
-  
-const filtrados = data.filter((r) => {
+
+
+{/* Botón Limpiar */}
+<div style={{ alignSelf: "flex-end" }}>
+  <button
+    onClick={() => {
+      setFilterLinea("Todos");
+      setFilterOperador("Todos");
+      setFilterZona("Todos");
+      setFilterProvincia("Todos");
+      setFilterModelo("Todos");
+      setFilterTrasera("Todos");
+      setFilterCampania("Todos");
+      setFechaDesde(null);
+      setFechaHasta(null);
+    }}
+    style={{
+      padding: "10px 16px",
+      borderRadius: "6px",
+      backgroundColor: "#007bff",
+      color: "white",
+      fontWeight: "bold",
+      border: "none",
+      cursor: "pointer",
+    }}
+  >
+    🔄 Limpiar filtros
+  </button>
+</div>
+
+
+
+
+
+
+       {allColors.map((color) => {
+  // Filtramos según fecha, color y el resto de filtros
+  const filtrados = data.filter((r) => {
+    if (!fechaSeleccionada) return false;
+    const seleccion = new Date(fechaSeleccionada);
+    seleccion.setHours(0, 0, 0, 0);
+
+    const inicio = r.fechaInicio
+      ? new Date(completarSegundos(r.fechaInicio))
+      : null;
+    const fin = r.fechaFin
+      ? new Date(completarSegundos(r.fechaFin))
+      : null;
+
+    if (inicio) inicio.setHours(0, 0, 0, 0);
+    if (fin)    fin.setHours(23, 59, 59, 999);
+
+    const enRango = (inicio && fin)
+      ? (seleccion >= inicio && seleccion <= fin)
+      : inicio
+      ? (seleccion >= inicio)
+      : fin
+      ? (seleccion <= fin)
+      : false;
+
+    // 1️⃣ Detectamos si la campaña expiró antes de la fecha seleccionada
+    const expirado = !!(fin && seleccion > fin);
+
+    // 2️⃣ Determinamos si ha empezado o ha terminado
+    const haEmpezado  = !!(inicio && seleccion >= inicio);
+    const haTerminado = !!(fin    && seleccion > fin);
+
+    // 3️⃣ Definimos el color de visualización:
+    //    antes de inicio o tras fin → "white"
+    const displayColor: Color = (!haEmpezado || haTerminado)
+      ? "white"
+      : r.color;
+
+    // tus filtros habituales
+    const coincideOperador  = filterOperador  === "Todos" || r.operador  === filterOperador;
+    const coincideLinea     = filterLinea     === "Todos" || r.lineas    === filterLinea;
+    const coincideZona      = filterZona      === "Todos" || r.zona      === filterZona;
+    const coincideProvincia = filterProvincia === "Todos" || r.provincia === filterProvincia;
+    const coincideModelo    = filterModelo    === "Todos" || r.modelo    === filterModelo;
+    const coincideTrasera   = filterTrasera   === "Todos" || r.trasera   === filterTrasera;
+    const coincideCampania  = filterCampania  === "Todos" || r.campania  === filterCampania;
+
+    if (color === "white") {
+      // ⚪ Libres: todas las que, tras aplicar displayColor, sean white
+      return (
+        (displayColor === "white") &&
+        coincideOperador &&
+        coincideLinea &&
+        coincideZona &&
+        coincideProvincia &&
+        coincideModelo &&
+        coincideTrasera &&
+        coincideCampania
+      );
+    } else {
+      // 🟠🔴⚫ Sólo dentro de rango, no caducadas (o caducadas si mostramos) y con displayColor === color
+      return (
+        (displayColor === color) &&
+        enRango &&
+        (!mostrarCaducados || expirado) &&
+        coincideOperador &&
+        coincideLinea &&
+        coincideZona &&
+        coincideProvincia &&
+        coincideModelo &&
+        coincideTrasera &&
+        coincideCampania
+      );
+    }
+  });
+
+
+  return (
+
+    
+    <div key={color}>
+    <h4 style={sectionTitle}>
+  {sectionLabels[color]} el {fechaSeleccionada!.toLocaleDateString()}
+</h4>
+
+
+      {filtrados.length > 0 ? (
+        <div style={{
+            maxHeight: "300px",
+            overflowY: "auto",
+            overflowX: "auto",
+            width: "100%",
+            marginBottom: 30,
+            border: "1px solid #ccc",
+            borderRadius: "6px",
+            position: "relative",
+            zIndex: 1,
+          }}>
+          <table style={tableStyle}>
+            <thead style={{
+                position: "sticky",
+                top: 0,
+                backgroundColor: "#ddd",
+                zIndex: 1,
+              }}>
+              <tr>
+                <th style={{
+                    position: "sticky",
+                    left: 0,
+                    backgroundColor: "#ddd",
+                    zIndex: 2,
+                  }}>
+                  Acciones
+                </th>
+                {[
+                  "n_flota","campania","carretera","provincia","zona","operador",
+                  "lineas","matricula","base","modelo","plantilla","extra","trasera",
+                  "izq_delantera","izq_plus","izq_trasera","der_delantera",
+                  "der_plus","der_trasera","info_plus","observaciones",
+                  "fechaInicio","fechaFin",
+                ].map((field) => (
+                  <th key={field}>{field}</th>
+                ))}
+                <th>Eliminar</th>
+              </tr>
+            </thead>
+            <tbody>
+             {filtrados.map((row,idx) => {
+  // normalizamos la fecha seleccionada
   const seleccion = new Date(fechaSeleccionada!);
   seleccion.setHours(0, 0, 0, 0);
-
-  const inicio = r.fechaInicio ? new Date(completarSegundos(r.fechaInicio)) : null;
-  const fin = r.fechaFin ? new Date(completarSegundos(r.fechaFin)) : null;
-
+  const inicio = row.fechaInicio ? new Date(completarSegundos(row.fechaInicio)) : null;
+  const fin    = row.fechaFin    ? new Date(completarSegundos(row.fechaFin))    : null;
   if (inicio) inicio.setHours(0, 0, 0, 0);
-  if (fin) fin.setHours(0, 0, 0, 0);
+  if (fin)    fin.setHours(23, 59, 59, 999);
+  const haEmpezado  = !!(inicio && seleccion >= inicio);
+  const haTerminado = !!(fin    && seleccion >  fin);
+  const displayColor: Color = (!haEmpezado || haTerminado) ? "white" : row.color;
 
-  const enRango = inicio && fin
-    ? seleccion >= inicio && seleccion <= fin
-    : inicio
-    ? seleccion >= inicio
-    : fin
-    ? seleccion <= fin
-    : false;
-
-  const expirado = fin && seleccion > fin;
-
-  const coincideOperador = filterOperador === "Todos" || r.operador === filterOperador;
-  const coincideLinea = filterLinea === "Todos" || r.lineas === filterLinea;
-  const coincideZona = filterZona === "Todos" || r.zona === filterZona;
-  const coincideProvincia = filterProvincia === "Todos" || r.provincia === filterProvincia;
-  const coincideModelo = filterModelo === "Todos" || r.modelo === filterModelo;
-  const coincideTrasera = filterTrasera === "Todos" || r.trasera === filterTrasera;
-  const coincideCampania = filterCampania === "Todos" || r.campania === filterCampania;
-
-  if (color === "white") {
-    return (
-      (
-        r.color === "white" ||
-        (!r.fechaInicio && !r.fechaFin) ||
-        expirado // ⬅️ aquí se añade lo importante
-      ) &&
-      coincideOperador &&
-      coincideLinea &&
-      coincideZona &&
-      coincideProvincia &&
-      coincideModelo &&
-      coincideTrasera &&
-      coincideCampania
-    );
-  } else {
-    return (
-      r.color === color &&
-      enRango &&
-      (!mostrarCaducados || expirado) &&
-      coincideOperador &&
-      coincideLinea &&
-      coincideZona &&
-      coincideProvincia &&
-      coincideModelo &&
-      coincideTrasera &&
-      coincideCampania
-    );
-  }
-});
-
-
-
-
-
-
-
-
-
-
-          return (
-            <div key={color}>
-              
-  <h4 style={sectionTitle}>
-    {colorLabels[color as Color]} el{" "}
-    {fechaSeleccionada.toLocaleDateString()}
-  </h4>
-
-  {filtrados.length > 0 ? (
-    <div style={{
-      maxHeight: "300px",
-      overflowY: "auto",
-      overflowX: "auto",
-      width: "100%",
-      marginBottom: 30,
-      border: "1px solid #ccc",
-      borderRadius: "6px"
-    }}>
-      <table style={tableStyle}>
-        <thead style={{
+  return (
+    <tr key={idx} style={{ backgroundColor: displayColor }}>
+      {/* —————— CELDA ACCIONES —————— */}
+      <td
+        style={{
           position: "sticky",
-          top: 0,
-          backgroundColor: "#ddd",
-          zIndex: 1
-        }}>
-          <tr>
-            <th style={{ position: "sticky", left: 0, backgroundColor: "#ddd", zIndex: 2 }}>Acciones</th>
-            <th>n_flota</th>
-        <th>Carretera</th>
-        <th>Provincia</th>
-        <th>Zona</th>
-        <th>Operador</th>
-        <th>Líneas</th>
-        <th>Matrícula</th>
-        <th>Base</th>
-        <th>Modelo</th>
-        <th>Plantilla</th>
-        <th>Extra</th>
-        <th>Trasera</th>
-        <th>Izq Delantera</th>
-        <th>Izq Plus</th>
-        <th>Izq Trasera</th>
-        <th>Der Delantera</th>
-        <th>Der Plus</th>
-        <th>Der Trasera</th>
-        <th>Campaña</th>
-        <th>Info Plus</th>
-        <th>Observaciones</th>
-        <th>Fecha Inicio</th>
-        <th>Fecha Fin</th>
-
-          </tr>
-        </thead>
-        <tbody>
-          {filtrados.map((row, index) => (
-            <tr
-              key={index}
+          left: 0,
+          backgroundColor: "#fff",
+          zIndex: 1,
+          padding: 4
+        }}
+      >
+        <div style={actionButtonGroup}>
+          {allColors.map((c) => (
+            <button
+              key={c}
+              onClick={() => handleColorChange(row.n_flota, c)}
               style={{
-                backgroundColor: (() => {
-                  const fin = row.fechaFin
-                    ? new Date(parse(row.fechaFin, "dd/MM/yyyy HH:mm", new Date()).setHours(23, 59, 59, 999))
-                    : null;
-                  const hoy = new Date();
-                  hoy.setHours(0, 0, 0, 0);
-                  return fin && fin < hoy ? "white" : row.color;
-                })(),
+                ...colorButtonStyle,
+                backgroundColor:
+                  c === "white" ? "#f1f1f1" : c === "black" ? "black" : c,
+                color: c === "white" ? "#000" : "#fff",
+                border: c === "black" ? "2px solid black" : "none",
               }}
             >
-              <td style={{ position: "sticky", left: 0, backgroundColor: "#fff", zIndex: 1 }}>
-                <div style={actionButtonGroup}>
-                  {["orange", "black", "red", "white"].map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => handleColorChange(data.indexOf(row), c as Color)}
-                      style={{
-                        ...colorButtonStyle,
-                        backgroundColor: c === "white" ? "#f1f1f1" : c === "black" ? "black" : c,
-                        color: c === "white" ? "#000" : "#fff",
-                        border: c === "black" ? "2px solid black" : "none",
-                      }}
-                    >
-                      {c === "orange"
-                        ? "Reservado"
-                        : c === "black"
-                        ? "No usar"
-                        : c === "red"
-                        ? "Montado"
-                        : "Resetear"}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => handleDelete(row.n_flota)}
-                    style={{ ...colorButtonStyle, backgroundColor: "red", color: "white" }}
-                  >
-                    Eliminar
-                  </button>
-                </div>
-              </td>
-
-              {["n_flota",
-                "carretera",
-                "provincia",
-                "zona",
-                "operador",
-                "lineas",
-                "matricula",
-                "base",
-                "modelo",
-                "plantilla",
-                "extra",
-                "trasera",
-                "izq_delantera",
-                "izq_plus",
-                "izq_trasera",
-                "der_delantera",
-                "der_plus",
-                "der_trasera",
-                "campania",
-                "info_plus",
-                "observaciones",
-                "fechaInicio",
-                "fechaFin"].map((field) => (
-                <td key={field}>
-                  <input
-                    type={field === "fechaInicio" || field === "fechaFin" ? "datetime-local" : "text"}
-                    value={(row as any)[field] || ""}
-                    onChange={(e) =>
-                      handleInputChange(
-                        data.indexOf(row),
-                        field as keyof Row,
-                        e.target.value
-                      )
-                    }
-                    style={{
-                      ...inputStyle,
-                      backgroundColor: "#f9f9f9",
-                      color: "#333",
-                      border: "1px solid #ccc",
-                      borderRadius: "6px",
-                      fontWeight: 500,
-                      padding: "5px",
-                      width: field === "base" || field === "observacion" ? "250px" : "100%",
-                    }}
-                  />
-                </td>
-              ))}
-            </tr>
+              {buttonLabels[c]}
+            </button>
           ))}
-        </tbody>
-      </table>
-    </div>
-  ) : (
-    <p style={{
-  fontStyle: "italic",
-  color: "#666",
-  textAlign: "center",
-  padding: "10px 0"
-}}>
-  Ninguno
-</p>
+          <button
+            onClick={() => abrirHistorial(row.n_flota)}
+            style={{
+              marginLeft: 4,
+              backgroundColor: "#e0e0e0",
+              border: "none",
+              padding: "4px 6px",
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+            title="Ver historial"
+          >
+            📜
+          </button>
+        </div>
+      </td>
+
+      {/* —————— CELDAS EDITABLES —————— */}
+      {[
+        "n_flota","campania","carretera","provincia","zona","operador",
+        "lineas","matricula","base","modelo","plantilla","extra",
+        "trasera","izq_delantera","izq_plus","izq_trasera",
+        "der_delantera","der_plus","der_trasera","info_plus",
+        "observaciones","fechaInicio","fechaFin",
+      ].map((field) => (
+        <td key={field}>
+          <input
+            type={field === "fechaInicio" || field === "fechaFin" ? "datetime-local" : "text"}
+            value={(row as any)[field] || ""}
+            onChange={(e) => {
+              const idx = data.findIndex((r) => r.n_flota === row.n_flota);
+              if (idx !== -1) {
+                handleInputChange(idx, field as keyof Row, e.target.value);
+              }
+            }}
+            style={{
+              ...inputStyle,
+              backgroundColor: "#f9f9f9",
+              color: "#333",
+              border: "1px solid #ccc",
+              borderRadius: 6,
+              fontWeight: 500,
+              padding: 5,
+              width: field === "base" || field === "observaciones" ? "250px" : "100%",
+            }}
+          />
+        </td>
+      ))}
+
+      {/* —————— BOTÓN ELIMINAR —————— */}
+      <td style={{ paddingLeft: 15, width: 130, textAlign: "center" }}>
+        <button
+          onClick={() => handleDelete(row.n_flota)}
+          style={{
+            ...colorButtonStyle,
+            backgroundColor: "red",
+            color: "white",
+            width: 100,
+          }}
+        >
+          Eliminar
+        </button>
+      </td>
+    </tr>
+  );
+})}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p style={{
+            fontStyle: "italic",
+            color: "#666",
+            textAlign: "center",
+            padding: "10px 0",
+          }}>
+          Ninguno
+        </p>
 
   )}
 </div>
 
+
+
           );
+          
         })}
       </>
     )}
     <ToastContainer position="top-right" autoClose={3000} />
   </div>
 )}
+
 
 
 

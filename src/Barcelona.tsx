@@ -15,6 +15,7 @@ import { Doughnut } from "react-chartjs-2";
 import "react-datepicker/dist/react-datepicker.css";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css"; // NECESARIO para mostrar el calendario
+import { Fragment } from "react";
 
 
 
@@ -78,9 +79,86 @@ const Barcelona: React.FC = () => {
 
 
   
-  
-  
+// Al principio, junto a los otros useState:
+const [isDirty, setIsDirty] = useState(false);
 
+// Efecto para avisar al cerrar pestaña o navegar:
+// 1️⃣ Aviso al recargar o cerrar pestaña
+useEffect(() => {
+  const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (isDirty) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  };
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  return () => {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+  };
+}, [isDirty]);
+
+// 2️⃣ Aviso al pulsar “Atrás”/“Adelante” (solo una vez insertamos el state extra)
+useEffect(() => {
+  const hasPushed = { current: false };
+
+  if (isDirty && !hasPushed.current) {
+    window.history.pushState(null, "", window.location.href);
+    hasPushed.current = true;
+  }
+  const onPop = (e: PopStateEvent) => {
+    if (!isDirty) return;
+    const leave = window.confirm(
+      "Tienes cambios sin guardar. ¿Seguro que quieres salir sin guardar?"
+    );
+    if (!leave) {
+      // cancel: volvemos a empujar estado
+      window.history.pushState(null, "", window.location.href);
+    } else {
+      // confirm: limpiamos flag y permitimos retroceso
+      window.removeEventListener("popstate", onPop);
+      setIsDirty(false);
+      window.history.back();
+    }
+  };
+
+  window.addEventListener("popstate", onPop);
+  return () => {
+    window.removeEventListener("popstate", onPop);
+  };
+}, [isDirty]);
+
+
+
+
+  
+const [historial, setHistorial] = useState<Row[]>([]);
+const [showHistorial, setShowHistorial] = useState(false);
+const [codigoSeleccionado, setCodigoSeleccionado] = useState<string | null>(null);
+
+const abrirHistorial = (codigo: string) => {
+  const key = `historial-${codigo}`;
+  const h: Row[] = JSON.parse(localStorage.getItem(key) || "[]");
+
+  if (h.length === 0) {
+    toast.info(`ℹ️ No hay historial para el código ${codigo}.`);
+    // Aseguramos que no quede abierto ningún modal:
+    setShowHistorial(false);
+    setCodigoSeleccionado(null);
+    return;
+  }
+
+  setHistorial(h);
+  setCodigoSeleccionado(codigo);
+  setShowHistorial(true);
+};
+
+
+
+const cerrarHistorial = () => {
+  setShowHistorial(false);
+  setCodigoSeleccionado(null);
+  setHistorial([]);
+};
 
 
 const [filterProvincia, setFilterProvincia] = useState("Todos");
@@ -845,18 +923,38 @@ const filaVacia: Row = {
   fecha_fin: "",
   color: "white",
 };
+
+// Guarda siempre una copia “vieja” de la fila en localStorage bajo la key `historial-<codigo>`
+const logHistorial = (oldRow: Row) => {
+  const key = `historial-${oldRow.codigo}`;
+  // Lee el array actual (o uno vacío si no existe)
+  const h: Row[] = JSON.parse(localStorage.getItem(key) || "[]");
+  // Añade el snapshot
+  h.push({ ...oldRow });
+  // Vuelve a guardar
+  localStorage.setItem(key, JSON.stringify(h));
+};
+
 const handleSave = async () => {
   try {
+    // 1️⃣ Identifica filas modificadas
     const filasModificadas = data
       .filter((row) =>
         row.codigo &&
-        rowHasChanges(originalData.find((r) => r.codigo === row.codigo) || filaVacia, row) // ✅ compara con fila vacía si no hay original
+        rowHasChanges(
+          originalData.find((r) => r.codigo === row.codigo) || filaVacia,
+          row
+        )
       )
       .map((row) => {
-        const fechaInicio = row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null;
-        const fechaFin = row.fecha_fin ? completarSegundos(row.fecha_fin) : null;
+        const fechaInicio = row.fecha_inicio
+          ? completarSegundos(row.fecha_inicio)
+          : null;
+        const fechaFin = row.fecha_fin
+          ? completarSegundos(row.fecha_fin)
+          : null;
 
-        // Validar formato de fecha
+        // Validar formato
         const formatoFecha = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/;
         if (
           (fechaInicio && !formatoFecha.test(fechaInicio)) ||
@@ -867,31 +965,48 @@ const handleSave = async () => {
         }
 
         return {
-          codigo: row.codigo || "",
-          campania: row.campania || "",
-          club: row.club || "",
-          cp: typeof row.cp === "number" ? row.cp : 0,
-          direccion: row.direccion || "",
-          municipio: row.municipio || "",
-          provincia: row.provincia || "",
-          observaciones: row.observaciones || "",
+          codigo: row.codigo!,
+          campania: row.campania,
+          club: row.club,
+          cp: row.cp,
+          direccion: row.direccion,
+          municipio: row.municipio,
+          provincia: row.provincia,
+          observaciones: row.observaciones,
           fechaInicio,
           fechaFin,
-          color: row.color || "white",
+          color: row.color,
         };
       })
-      .filter(Boolean); // 🔍 elimina los null por validaciones
+      .filter(Boolean) as Array<{
+        codigo: string;
+        fechaInicio: string | null;
+        fechaFin: string | null;
+        color: Color;
+        // …resto campos
+      }>;
 
     if (filasModificadas.length === 0) {
       toast.info("✅ No hay cambios para guardar.");
       return;
     }
 
-    // ✅ Envío en lote real (rápido)
+    // 2️⃣ Antes de enviar, guarda en historial el estado anterior
+    filasModificadas.forEach((mod) => {
+      const previo = originalData.find((r) => r.codigo === mod.codigo);
+      if (previo) {
+        logHistorial(previo);
+      }
+    });
+
+    // 3️⃣ Envío al API
     await axios.post(
       `${import.meta.env.VITE_BACKEND_URL}/Corporalia/v1/BBDD/bulk-fast`,
       filasModificadas
     );
+
+    // 4️⃣ Actualiza originalData para futuras comparaciones
+    setOriginalData(data.map((r) => ({ ...r })));
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
@@ -909,7 +1024,6 @@ const handleSave = async () => {
 
 
 
-
   const addRow = () => {
   setData((prev) => [
     ...prev,
@@ -917,7 +1031,7 @@ const handleSave = async () => {
       codigo: "",
       campania: "",
       club: "",
-      cp: 0, // ← corregido: debe ser number
+      cp: 0,
       direccion: "",
       municipio: "",
       provincia: "Barcelona",
@@ -928,6 +1042,7 @@ const handleSave = async () => {
     },
   ]);
   toast.success("Fila añadida correctamente!");
++ setIsDirty(true);
 };
 
 
@@ -939,14 +1054,25 @@ const handleSave = async () => {
 
     // Si el campo es de fecha, añade los segundos si no están
     if ((field === "fecha_inicio" || field === "fecha_fin") && value.length === 16) {
-      value = value + ":00"; // completa a formato ISO con segundos
+      value = value + ":00";
     }
 
-    newData[index] = { ...newData[index], [field]: value };
+    newData[index] = {
+      ...newData[index],
+      [field]: value,
+      // Siempre que modifiquemos fecha_inicio o fecha_fin,
+      // devolvemos el color a blanco automáticamente:
+      ...(field === "fecha_inicio" || field === "fecha_fin" ? { color: "white" as Color } : {})
+    };
+
     console.log("➡️ Editando:", newData[index]);
     return newData;
   });
+
+  setIsDirty(true);
 };
+
+
 
 
   const theadStyle: React.CSSProperties = {
@@ -1184,45 +1310,46 @@ const CalendarTable: React.FC<CalendarTableProps> = ({ rows, filters, setFilters
   
 
   const handleColorChange = (index: number, color: Color) => {
-    setData((prevData) => {
-      const newData = [...prevData];
-  
-      // Si se quiere asignar un color distinto de white, verificar fechas
-      if (color !== "white") {
-        const { fecha_inicio, fecha_fin } = newData[index];
-        if (!fecha_inicio || !fecha_fin) {
-          alert("⚠️ Debes introducir fecha de inicio y fin antes de cambiar el estado.");
-          return prevData; // no actualiza nada
-        }
-      }
-  
-      // Si se selecciona "white", se limpian otros campos
-      if (color === "white") {
-  newData[index] = {
-    ...newData[index],
-    color,
-    fecha_inicio: "",
-    fecha_fin: "",
-    campania: "",
-    observaciones: "",
-    
-  };
-} else {
-  newData[index] = {
-    ...newData[index],
-    color
-  };
-}
+  setData((prevData) => {
+    const newData = [...prevData];
+    const row = newData[index];
 
-  
-      // Guardar en localStorage
-      const savedColors = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
-      savedColors[newData[index].codigo] = color;
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(savedColors));
-  
-      return newData;
-    });
-  };
+    // 1️⃣ Si vas a resetear a blanco, primero logueamos el estado actual
+    if (color === "white") {
+      logHistorial(row);  // Añade al historial antes de limpiar
+      newData[index] = {
+        ...row,
+        color: "white",
+        fecha_inicio: "",
+        fecha_fin: "",
+        campania: "",
+        observaciones: "",
+      };
+    } else {
+      // 2️⃣ Para cualquier otro color, verificamos fechas y asignamos
+      const { fecha_inicio, fecha_fin } = row;
+      if (!fecha_inicio || !fecha_fin) {
+        alert("⚠️ Debes introducir fecha de inicio y fin antes de cambiar el estado.");
+        return prevData; // no actualiza nada
+      }
+      newData[index] = {
+        ...row,
+        color,
+      };
+    }
+
+    // Guardar en localStorage
+    const savedColors = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || "{}");
+    savedColors[row.codigo] = newData[index].color;
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(savedColors));
+
+    return newData;
+  });
+
+  // Marcamos que hay cambios pendientes
+  setIsDirty(true);
+};
+
 
 
  const parseDate = (fecha: string | null | undefined): Date | null => {
@@ -1343,26 +1470,35 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
     borderRadius: "12px",
   }}
 >
-  {/* Volver Atrás */}
   <button
-    onClick={() => window.history.back()}
-    style={{
-      padding: "10px 20px",
-      borderRadius: "10px",
-      background: "linear-gradient(45deg, #ff4d4d, #d11a2a)",
-      color: "white",
-      fontWeight: "bold",
-      fontSize: "15px",
-      border: "none",
-      cursor: "pointer",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-      transition: "all 0.2s ease-in-out",
-    }}
-    onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-    onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
-  >
-    🔙 Volver Atrás
-  </button>
+  onClick={() => {
+    // Si no hay cambios, simplemente volvemos
+    if (!isDirty) {
+      window.history.back();
+      return;
+    }
+    // Si hay cambios, confirmamos
+    const ok = window.confirm('Hay cambios sin guardar. ¿Seguro que deseas salir sin guardar?');
+    if (ok) window.history.back();
+  }}
+  style={{
+    padding: "10px 20px",
+    borderRadius: "10px",
+    background: "linear-gradient(45deg, #ff4d4d, #d11a2a)",
+    color: "white",
+    fontWeight: "bold",
+    fontSize: "15px",
+    border: "none",
+    cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+    transition: "all 0.2s ease-in-out",
+  }}
+  onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
+  onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
+>
+  🔙 Volver Atrás
+</button>
+
 
   {/* Guardar Cambios */}
   <button
@@ -2294,56 +2430,53 @@ console.log("✅ DISPONIBLES TOTALES:", disponibles.map(r => r.codigo));
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
 
-  const filtrados = data.filter((r) => {
+ const filtrados = data.filter((r) => {
   const seleccion = new Date(fechaSeleccionada!);
   seleccion.setHours(0, 0, 0, 0);
 
-  const inicio = r.fecha_inicio ? new Date(completarSegundos(r.fecha_inicio)) : null;
-  const fin = r.fecha_fin ? new Date(completarSegundos(r.fecha_fin)) : null;
-
+  // parseamos y normalizamos
+  const inicio = r.fecha_inicio
+    ? new Date(completarSegundos(r.fecha_inicio))
+    : null;
+  const fin = r.fecha_fin
+    ? new Date(completarSegundos(r.fecha_fin))
+    : null;
   if (inicio) inicio.setHours(0, 0, 0, 0);
-  if (fin) fin.setHours(0, 0, 0, 0);
+  if (fin)    fin.setHours(0, 0, 0, 0);
 
+  // lógica común de filtros:
   const coincideProvincia = filterProvincia === "Todos" || r.provincia === filterProvincia;
-const coincideCampania = filterCampania === "Todos" || r.campania === filterCampania;
-const coincideMunicipio = filterMunicipio === "Todos" || r.municipio === filterMunicipio || (!r.municipio && filterMunicipio === "Guadaira");
-const coincideCodigo = filterCodigo === "Todos" || r.codigo === filterCodigo;
-const coincideClub = filterClub === "Todos" || r.club === filterClub;
-const coincideColor = filterColor === "Todos" || r.color === filterColor;
-
+  const coincideCampania  = filterCampania  === "Todos" || r.campania  === filterCampania;
+  const coincideMunicipio = filterMunicipio === "Todos" || r.municipio === filterMunicipio;
+  const coincideCodigo    = filterCodigo    === "Todos" || r.codigo    === filterCodigo;
+  const coincideClub      = filterClub      === "Todos" || r.club      === filterClub;
+  const coincideColor     = filterColor     === "Todos" || r.color     === filterColor;
 
   if (color === "white") {
-    const estaOcupadoEnFecha =
-  (inicio && fin && seleccion >= inicio && seleccion <= fin) ||
-  (inicio && !fin && seleccion > inicio) || // 🔄 antes era >=
-  (!inicio && fin && seleccion <= fin);
+    // calculamos si la fecha está dentro del rango de inicio/fin
+    const enRango = inicio && fin
+      ? seleccion >= inicio && seleccion <= fin
+      : inicio
+      ? seleccion >= inicio
+      : fin
+      ? seleccion <= fin
+      : false;
 
+    console.log("→ Sección Libres, registro:", r.codigo, { enRango });
 
-    const estaDisponible = true; // ⚪ siempre se muestra si es white
+    // devolvemos TODOS los blancos reales, **y** cualquier registro fuera de rango
+    return (
+      coincideProvincia &&
+      coincideCampania &&
+      coincideMunicipio &&
+      coincideCodigo &&
+      coincideClub &&
+      coincideColor &&
+      (r.color === "white" || !enRango)
+    );
+  }
 
-
-    console.log("🧪 Libre:", {
-  codigo: r.codigo,
-  estaDisponible,
-  coincideMunicipio,
-  coincideCampania,
-  coincideProvincia,
-  coincideCodigo,
-  coincideClub,
-  coincideColor,
-});
-
-return (
-  r.color === "white" &&
-  estaDisponible &&
-  coincideProvincia &&
-  coincideCampania &&
-  coincideMunicipio &&
-  coincideCodigo &&
-  coincideClub &&
-  coincideColor
-);
-} else {
+  // **Para los demás colores** mantenemos tu lógica original de rango:
   const enRango = inicio && fin
     ? seleccion >= inicio && seleccion <= fin
     : inicio
@@ -2351,7 +2484,6 @@ return (
     : fin
     ? seleccion <= fin
     : false;
-
   const esCaducado = fin && fin < new Date();
 
   return (
@@ -2365,10 +2497,7 @@ return (
     coincideClub &&
     coincideColor
   );
-}
-
 });
-
 
 
 
@@ -2398,141 +2527,286 @@ return (
     borderRadius: "6px"
   }}>
     <table style={tableStyle}>
-      <thead style={{
-        position: "sticky",
-        textAlign: "center",
-        top: 0,
-        backgroundColor: "#ddd",
-        zIndex: 1
-      }}>
-        <tr>
-          <th style={{ position: "sticky", left: 0, backgroundColor: "#ddd", zIndex: 2 }}>Acciones</th>
-          <th>Código</th>
-          <th>Campaña</th>
-          <th>Club</th>
-          <th>CP</th>
-          <th>Dirección</th>
-          <th>Municipio</th>
-          <th>Provincia</th>
-          <th>Observaciones</th>
-          <th>Fecha Inicio</th>
-          <th>Fecha Fin</th>
-        </tr>
-      </thead>
-      <tbody>
-        {filtrados.map((row, index) => (
-          <tr
-            key={index}
-            style={{
-              backgroundColor: (() => {
+  <thead style={{
+    position: "sticky",
+    textAlign: "center",
+    top: 0,
+    backgroundColor: "#ddd",
+    zIndex: 1
+  }}>
+    <tr>
+      <th style={{ position: "sticky", left: 0, backgroundColor: "#ddd", zIndex: 2 }}>Acciones</th>
+      <th>Código</th>
+      <th>Campaña</th>
+      <th>Club</th>
+      <th>CP</th>
+      <th>Dirección</th>
+      <th>Municipio</th>
+      <th>Provincia</th>
+      <th>Observaciones</th>
+      <th>Fecha Inicio</th>
+      <th>Fecha Fin</th>
+      <th>Eliminar</th> {/* Nueva columna */}
+    </tr>
+  </thead>
+  <tbody>
+    {filtrados.map((row, index) => (
+    <tr
+      key={index}
+      style={{
+        backgroundColor:
+          // si estamos renderizando la sección de "white" (libres),
+          // forzamos siempre blanco:
+          color === "white"
+            ? "white"
+            : // en caso contrario, volvemos a tu lógica original:
+              (() => {
                 const fin = row.fecha_fin
-                  ? new Date(parse(row.fecha_fin, "dd/MM/yyyy HH:mm", new Date()).setHours(23, 59, 59, 999))
+                  ? new Date(
+                      parse(
+                        row.fecha_fin,
+                        "dd/MM/yyyy HH:mm",
+                        new Date()
+                      ).setHours(23, 59, 59, 999)
+                    )
                   : null;
                 const hoy = new Date();
                 hoy.setHours(0, 0, 0, 0);
                 return fin && fin < hoy ? "white" : row.color;
               })(),
-            }}
-          >
-            <td style={{ position: "sticky", left: 0, backgroundColor: "#fff", zIndex: 1, textAlign: "center" }}>
-              <div style={actionButtonGroup}>
-                {["orange", "black", "red", "white"].map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => handleColorChange(data.indexOf(row), c as Color)}
-                    style={{
-                      ...colorButtonStyle,
-                      backgroundColor: c === "white" ? "#f1f1f1" : c === "black" ? "black" : c,
-                      color: c === "white" ? "#000" : "#fff",
-                      border: c === "black" ? "2px solid black" : "none",
-                    }}
-                  >
-                    {c === "orange"
-                      ? "Reservado"
-                      : c === "black"
-                        ? "No usar"
-                        : c === "red"
-                          ? "Montado"
-                          : "Resetear"}
-                  </button>
-                ))}
-                <button
-                  onClick={() => handleDelete(row.codigo)}
-                  style={{ ...colorButtonStyle, backgroundColor: "red", color: "white" }}
-                >
-                  Eliminar
-                </button>
-              </div>
-            </td>
+        }}
+      >
+        <td
+  style={{
+    position: "sticky",
+    left: 0,
+    backgroundColor: "#fff",
+    zIndex: 1,
+    textAlign: "center"
+  }}
+>
+  <div style={actionButtonGroup}>
+    {/* Botones de color existentes */}
+    {["orange", "black", "red", "white"].map((c) => (
+      <button
+        key={c}
+        onClick={() => handleColorChange(data.indexOf(row), c as Color)}
+        style={{
+          ...colorButtonStyle,
+          backgroundColor:
+            c === "white" ? "#f1f1f1" : c === "black" ? "black" : c,
+          color: c === "white" ? "#000" : "#fff",
+          border: c === "black" ? "2px solid black" : "none",
+        }}
+      >
+        {c === "orange"
+          ? "Reservado"
+          : c === "black"
+          ? "No usar"
+          : c === "red"
+          ? "Montado"
+          : "Resetear"}
+      </button>
+    ))}
 
-            {[
-              "codigo",
-              "campania",
-              "club",
-              "cp",
-              "direccion",
-              "municipio",
-              "provincia",
-              "observaciones",
-              "fecha_inicio",
-              "fecha_fin",
-            ].map((field) => (
-              <td key={field}>
-                <input
-                  type={field === "fecha_inicio" || field === "fecha_fin" ? "datetime-local" : "text"}
-                  value={
-                    field === "fecha_inicio" || field === "fecha_fin"
-                      ? (row as any)[field]
-                        ? (row as any)[field].slice(0, 16)
-                        : ""
-                      : (row as any)[field] || ""
-                  }
-                  onChange={(e) => {
-                    const rawValue = e.target.value;
-                    let finalValue = rawValue;
+    {/* Botón de historial */}
+    <button
+  onClick={() => abrirHistorial(row.codigo)}
+  style={{
+    ...colorButtonStyle,
+    backgroundColor: "#6c757d",
+    color: "white",
+    fontSize: "1.1rem",
+    padding: "6px",
+  }}
+  title="Ver historial"
+>
+  📜
+</button>
+  </div>
+</td>
 
-                    if ((field === "fecha_inicio" || field === "fecha_fin") && rawValue.length === 16) {
-                      finalValue = rawValue + ":00";
-                    }
 
-                    handleInputChange(data.indexOf(row), field as keyof Row, finalValue);
-                  }}
-                  style={{
-                    padding: "5px",
-                    borderRadius: "4px",
-                    border: "1px solid #ccc",
-                    backgroundColor: "#f9f9f9",
-                    width: "100%",
-                    textAlign: "center",
-                  }}
-                />
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+        {[
+  "codigo",
+  "campania",
+  "club",
+  "cp",
+  "direccion",
+  "municipio",
+  "provincia",
+  "observaciones",
+  "fecha_inicio",
+  "fecha_fin",
+].map((field) => (
+  <td key={field}>
+    <input
+      type={
+        field === "fecha_inicio" || field === "fecha_fin"
+          ? "datetime-local"
+          : "text"
+      }
+      value={
+        field === "fecha_inicio" || field === "fecha_fin"
+          ? (row as any)[field]
+            ? (row as any)[field].slice(0, 16)
+            : ""
+          : (row as any)[field] || ""
+      }
+      onChange={(e) => {
+        const rawValue = e.target.value;
+        let finalValue = rawValue;
+
+        if (
+          (field === "fecha_inicio" || field === "fecha_fin") &&
+          rawValue.length === 16
+        ) {
+          finalValue = rawValue + ":00";
+        }
+
+        handleInputChange(data.indexOf(row), field as keyof Row, finalValue);
+      }}
+      style={{
+        padding: "5px",
+        borderRadius: "4px",
+        border: "1px solid #ccc",
+        backgroundColor: "#f9f9f9",
+        width: "100%",
+        textAlign: "center",
+      }}
+    />
+  </td>
+))}
+
+{/* Nueva celda para Eliminar */}
+<td style={{ textAlign: "center" }}>
+  <button
+    onClick={() => handleDelete(row.codigo)}
+    style={{
+      ...colorButtonStyle,
+      backgroundColor: "red",
+      color: "white",
+      marginLeft: "8px",
+    }}
+  >
+    Eliminar
+  </button>
+</td>
+
+      </tr>
+    ))}
+  </tbody>
+</table>
+
+
+
   </div>
 ) : (
-  <p style={{
-    fontStyle: "italic",
-    color: "#666",
-    textAlign: "center",
-    padding: "10px 0"
-  }}>
-    Ninguno
-  </p>
-)}
-
-</div>
-
+  <p style={{ fontStyle: "italic", color: "#666", textAlign: "center", padding: "10px 0" }}>
+                  Ninguno
+                </p>
+              )}
+            </div>
           );
         })}
-      </>
-    )}
+
+    {/* …aquí acaba todo tu contenido principal… */}
     <ToastContainer position="top-right" autoClose={3000} />
-  </div>
-)}
+
+    {showHistorial && (
+          <div onClick={cerrarHistorial} style={{
+            position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100vw",
+    height: "100vh",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10000,
+  }}
+>
+            <div onClick={e=>e.stopPropagation()} style={{
+              backgroundColor: "#fff",
+      borderRadius: "8px",
+      padding: "24px",
+      width: "80vw",        // antes tenías 90%, baja un poco a 80vw para más margen
+      
+      maxHeight: "90vh",    // puedes subirlo a 90vh si prefieres
+      overflowY: "auto",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+    }}
+  >
+              <h3>📜 Historial de {codigoSeleccionado}</h3>
+              {historial.length===0
+                ? <p style={{ padding:"1rem", textAlign:"center", color:"#666" }}>
+                    No hay historial para este registro.
+                  </p>
+                : (
+                  <table style={{ width:"100%", borderCollapse:"collapse", tableLayout:"fixed",textAlign: "center",      // ⬅️ centra el texto horizontalmente
+        verticalAlign: "middle" }}>
+                    <thead>
+                      <tr>
+                        <th>Campaña</th><th>Club</th><th>CP</th><th>Dirección</th>
+                        <th>Municipio</th><th>Provincia</th><th>Observaciones</th>
+                        <th>Inicio</th><th>Fin</th><th>Color</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const anterior = historial[historial.length-1];
+                        const actual   = data.find(r=>r.codigo===codigoSeleccionado);
+                        return [anterior, actual].filter((r): r is Row=>!!r).map((row, i)=>(
+                          <tr key={i} style={{ backgroundColor: row.color }}>
+                            <td>
+                              <input
+                                value={row.campania}
+                                readOnly={i===0}
+                                style={{
+                                  border: i===0?"none":"1px solid #ccc",
+                                  width:"100%", padding:"4px"
+                                }}
+                              />
+                            </td>
+                            <td>{row.club}</td>
+                            <td>{row.cp}</td>
+                            <td>{row.direccion}</td>
+                            <td>{row.municipio}</td>
+                            <td>{row.provincia}</td>
+                            <td>{row.observaciones}</td>
+                            
+ <td>{row.fecha_inicio?.slice(0, 10) ?? ""}</td>
+  <td>{row.fecha_fin   ?.slice(0, 10) ?? ""}</td>
+
+                            <td>{row.color}</td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                )
+              }
+              <div style={{ textAlign:"right", marginTop:"16px" }}>
+                <button onClick={cerrarHistorial} style={{
+                  padding:"8px 16px", borderRadius:"4px",
+                  backgroundColor:"#007bff", color:"#fff", border:"none", cursor:"pointer"
+                }}>
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </>  
+    )     
+  }
+
+  </div>  /* cierra containerStyle */
+);       /* cierra return */
+
+}
 
 
 

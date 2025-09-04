@@ -2995,7 +2995,7 @@ data.forEach((row) => {
               </tr>
             </thead>
             <tbody>
-             {filtrados.map((row) => {
+             {filtrados.map((row,idx) => {
   // normalizamos la fecha seleccionada
   const seleccion = new Date(fechaSeleccionada!);
   seleccion.setHours(0, 0, 0, 0);
@@ -3008,7 +3008,7 @@ data.forEach((row) => {
   const displayColor: Color = (!haEmpezado || haTerminado) ? "white" : row.color;
 
   return (
-    <tr key={row.n_flota} style={{ backgroundColor: displayColor }}>
+    <tr key={idx} style={{ backgroundColor: displayColor }}>
       {/* —————— CELDA ACCIONES —————— */}
       <td
         style={{

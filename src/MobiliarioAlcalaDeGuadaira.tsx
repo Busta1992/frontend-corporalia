@@ -94,6 +94,9 @@ const markDirty = () => {
   isDirtyRef.current = true;
 };
 
+const [originalData, setOriginalData] = useState<Row[]>([]);
+
+
 const abrirHistorial = (codigo: string) => {
   setCodigoSeleccionado(codigo);
   setMostrarHistorial(true);
@@ -828,7 +831,6 @@ useEffect(() => {
 
 
   
-
 const handleSave = async () => {
   try {
     const datosLimpios = data.map((row) => ({
@@ -840,7 +842,7 @@ const handleSave = async () => {
       observaciones: row.observaciones || "",
       fechaInicio: row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null,
       fechaFin: row.fecha_fin ? completarSegundos(row.fecha_fin) : null,
-      color: row.color || "white", // 👈 asegúrate de incluir este campo
+      color: row.color || "white",
     }));
 
     console.log("📤 Datos enviados al backend:", datosLimpios);
@@ -851,8 +853,15 @@ const handleSave = async () => {
         continue;
       }
 
-      await axios.post("/Corporalia/v1/mobiliario", row); // 👈 asegúrate que el backend acepta 'color'
+      await axios.post("/Corporalia/v1/mobiliario", row);
     }
+
+    // 4️⃣ Actualiza originalData para futuras comparaciones
+    setOriginalData(data.map((r) => ({ ...r })));
+
+    // ✅ Reinicia los flags de cambios pendientes
+    setIsDirty(false);
+    isDirtyRef.current = false;
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
@@ -860,7 +869,6 @@ const handleSave = async () => {
     toast.error("Error al guardar los datos.");
   }
 };
-
 
 
 

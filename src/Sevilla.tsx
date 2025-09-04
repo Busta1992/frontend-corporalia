@@ -1008,14 +1008,15 @@ const handleSave = async () => {
     // 4️⃣ Actualiza originalData para futuras comparaciones
     setOriginalData(data.map((r) => ({ ...r })));
 
+    // ✅ Reinicia el flag de cambios pendientes
+    setIsDirty(false);
+
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
     console.error("⛔ Error general en guardado:", error);
     toast.error("Error general al guardar los datos.");
   }
 };
-
-
 
 
 
@@ -1042,7 +1043,7 @@ const handleSave = async () => {
     },
   ]);
   toast.success("Fila añadida correctamente!");
-+ setIsDirty(true);
+ setIsDirty(true);
 };
 
 

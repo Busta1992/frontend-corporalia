@@ -94,6 +94,8 @@ const markDirty = () => {
   isDirtyRef.current = true;
 };
 
+const [originalData, setOriginalData] = useState<Row[]>([]);
+
 const abrirHistorial = (codigo: string) => {
   setCodigoSeleccionado(codigo);
   setMostrarHistorial(true);
@@ -723,7 +725,7 @@ useEffect(() => {
     cp: row.cp || "",
     municipio: row.municipio && row.municipio.trim() !== ""
       ? row.municipio
-      : "Guadaira",
+      : "Torrelavega",
     provincia: row.provincia || "",
     observaciones: row.observaciones || "",
     fecha_inicio: row.fechaInicio ?? "",
@@ -762,7 +764,7 @@ useEffect(() => {
 
     } catch (err) {
       console.error("❌ Error cargando datos:", err);
-      toast.error("Error al cargar los datos de Guadaira.");
+      toast.error("Error al cargar los datos de Torrelavega.");
     }
   };
 
@@ -840,7 +842,7 @@ const handleSave = async () => {
       observaciones: row.observaciones || "",
       fechaInicio: row.fecha_inicio ? completarSegundos(row.fecha_inicio) : null,
       fechaFin: row.fecha_fin ? completarSegundos(row.fecha_fin) : null,
-      color: row.color || "white", // 👈 asegúrate de incluir este campo
+      color: row.color || "white",
     }));
 
     console.log("📤 Datos enviados al backend:", datosLimpios);
@@ -851,8 +853,15 @@ const handleSave = async () => {
         continue;
       }
 
-      await axios.post("/Corporalia/v1/mobiliario", row); // 👈 asegúrate que el backend acepta 'color'
+      await axios.post("/Corporalia/v1/mobiliario", row);
     }
+
+    // 4️⃣ Actualiza originalData para futuras comparaciones
+    setOriginalData(data.map((r) => ({ ...r })));
+
+    // ✅ Reinicia los flags de cambios pendientes
+    setIsDirty(false);
+    isDirtyRef.current = false;
 
     toast.success("✅ Cambios guardados correctamente.");
   } catch (error) {
@@ -869,7 +878,6 @@ const handleSave = async () => {
 
 
 
-
   const addRow = () => {
   setData((prev) => [
     ...prev,
@@ -877,8 +885,8 @@ const handleSave = async () => {
       codigo: "",
       campania: "",
       cp: "",
-      municipio: "Guadaira",
-      provincia: "Andalucía",
+      municipio: "Torrelavega",
+      provincia: "Cantabria",
       observaciones: "",
       fecha_inicio: "",
       fecha_fin: "",
